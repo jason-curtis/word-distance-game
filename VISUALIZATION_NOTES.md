@@ -64,18 +64,35 @@ This document tracks our iterations on the semantic word visualization for the S
 
 ---
 
-## Open Questions / Future Ideas
+---
 
-### Visualizing "Combinations" of Guesses
+## Iteration 7: "Hot Pairs" Combination Hints
 **Observation**: When target is "singers", guesses like "person" and "instrument" are both far from target but close to each other in angle (20° apart). Intuitively, "singers" is a combination of person + instrument concepts.
 
-**Ideas to explore**:
+**Implementation**:
+- For each pair of guesses, compute the midpoint of their embedding vectors
+- Check if midpoint has higher cosine similarity to target than either guess
+- If improvement > 0.02, mark as a "hot pair"
+- Draw curved arcs between hot pairs, curving toward the center
+- Arrow on arc points toward center, suggesting "try something in this direction"
+- Toggle with "Hints" button (amber colored)
+
+**Visual Design**:
+- Dashed amber arcs with glow effect
+- Arc curves toward center (control point pulled toward origin)
+- Small arrow at midpoint of arc pointing toward target
+- Opacity decreases for lower-ranked pairs (top 5 shown)
+
+---
+
+## Open Questions / Future Ideas
+
+### Additional Combination Visualizations
 1. **Centroid marker**: Show the centroid/average of all guesses - does it point toward the target?
-2. **Interpolation hints**: For pairs of guesses, compute their midpoint in embedding space. If midpoint is closer to target than either guess, highlight the space between them.
-3. **Vector field**: Show arrows indicating "direction toward closer words" based on the embedding gradient
-4. **Convex hull**: Draw the hull of guesses, indicate if target is likely inside/outside
-5. **Connecting lines**: Draw lines between guesses that are semantically close to each other (not just to target), revealing clusters
-6. **"Hot/cold" regions**: Heat map showing interpolated "closeness to target" across the visible space
+2. **Vector field**: Show arrows indicating "direction toward closer words" based on the embedding gradient
+3. **Convex hull**: Draw the hull of guesses, indicate if target is likely inside/outside
+4. **Connecting lines**: Draw lines between guesses that are semantically close to each other (not just to target), revealing clusters
+5. **"Hot/cold" regions**: Heat map showing interpolated "closeness to target" across the visible space
 
 ### Alternative Dimensionality Reduction
 - **MDS (Multidimensional Scaling)**: Preserve pairwise distances between all words including target

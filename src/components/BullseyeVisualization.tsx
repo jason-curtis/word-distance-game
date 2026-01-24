@@ -201,6 +201,22 @@ function getRankColor(rank: number, isTarget: boolean): string {
   return '#ef4444'
 }
 
+// Compute cosine similarity between two vectors
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0, normA = 0, normB = 0
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i]
+    normA += a[i] * a[i]
+    normB += b[i] * b[i]
+  }
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB))
+}
+
+// Compute midpoint of two vectors
+function vectorMidpoint(a: number[], b: number[]): number[] {
+  return a.map((val, i) => (val + b[i]) / 2)
+}
+
 export function BullseyeVisualization({
   guesses,
   rankings,
@@ -213,6 +229,7 @@ export function BullseyeVisualization({
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [showLabels, setShowLabels] = useState(true)
+  const [showHints, setShowHints] = useState(true)
   const [is3D, setIs3D] = useState(false)
   const [dimensions, setDimensions] = useState({ width: 400, height: 400 })
   const [rotation, setRotation] = useState({ x: 0.3, y: 0 }) // Initial tilt
@@ -241,6 +258,56 @@ export function BullseyeVisualization({
     const logMax = Math.log10(totalWords)
     return (logRank / logMax) * maxRadius
   }, [totalWords])
+
+  // Compute "hot pairs" - pairs of guesses where midpoint is closer to target
+  // This hints that the answer might be a "combination" of those concepts
+  const hotPairs = useMemo(() => {
+    if (!targetVector || guesses.length < 2) return []
+
+    const pairs: { word1: string; word2: string; improvement: number }[] = []
+
+    // Get vectors for all guesses
+    const guessData: { word: string; vector: number[]; similarity: number }[] = []
+    for (const guess of guesses) {
+      if (guess.word === targetWord) continue
+      const idx = wordIndex.get(guess.word)
+      if (idx !== undefined) {
+        guessData.push({
+          word: guess.word,
+          vector: wordVectors.vectors[idx],
+          similarity: guess.similarity
+        })
+      }
+    }
+
+    // Check all pairs
+    for (let i = 0; i < guessData.length; i++) {
+      for (let j = i + 1; j < guessData.length; j++) {
+        const a = guessData[i]
+        const b = guessData[j]
+
+        // Compute midpoint
+        const midpoint = vectorMidpoint(a.vector, b.vector)
+        const midSimilarity = cosineSimilarity(midpoint, targetVector)
+
+        // Check if midpoint is better than both guesses
+        const minSimilarity = Math.min(a.similarity, b.similarity)
+        const maxSimilarity = Math.max(a.similarity, b.similarity)
+
+        // If midpoint is significantly closer than the better of the two guesses
+        if (midSimilarity > maxSimilarity + 0.02) {
+          pairs.push({
+            word1: a.word,
+            word2: b.word,
+            improvement: midSimilarity - maxSimilarity
+          })
+        }
+      }
+    }
+
+    // Sort by improvement and take top pairs
+    return pairs.sort((a, b) => b.improvement - a.improvement).slice(0, 5)
+  }, [guesses, targetVector, targetWord, wordIndex, wordVectors.vectors])
 
   // Compute 3D plot points
   const plotPoints = useMemo((): PlotPoint[] => {
@@ -574,6 +641,8 @@ export function BullseyeVisualization({
         .attr('stroke-width', 2)
     }
 
+    // Hint arcs group (for "combination" hints)
+    g.append('g').attr('class', 'hint-arcs')
     // Depth lines group (3D only)
     g.append('g').attr('class', 'depth-lines')
     // Points group
@@ -590,6 +659,74 @@ export function BullseyeVisualization({
     if (g.empty()) return
 
     const maxRadius = Math.min(dimensions.width, dimensions.height) / 2 - 50
+
+    // Update hint arcs - show connections between guesses whose midpoint is closer to target
+    const hintsGroup = g.select<SVGGElement>('g.hint-arcs')
+    hintsGroup.selectAll('*').remove()
+
+    if (showHints && hotPairs.length > 0 && !is3D) {
+      // Create a map from word to screen position
+      const posMap = new Map<string, { x: number; y: number }>()
+      screenPoints.forEach(p => posMap.set(p.word, { x: p.screenX, y: p.screenY }))
+
+      hotPairs.forEach((pair, idx) => {
+        const pos1 = posMap.get(pair.word1)
+        const pos2 = posMap.get(pair.word2)
+        if (!pos1 || !pos2) return
+
+        // Draw a curved arc between the two points
+        // The arc curves toward the center (target)
+        const midX = (pos1.x + pos2.x) / 2
+        const midY = (pos1.y + pos2.y) / 2
+
+        // Control point: pull toward center based on improvement
+        const pullFactor = 0.5 + pair.improvement * 5
+        const ctrlX = midX * (1 - pullFactor)
+        const ctrlY = midY * (1 - pullFactor)
+
+        const pathData = `M ${pos1.x} ${pos1.y} Q ${ctrlX} ${ctrlY} ${pos2.x} ${pos2.y}`
+
+        // Glow effect
+        hintsGroup.append('path')
+          .attr('d', pathData)
+          .attr('fill', 'none')
+          .attr('stroke', '#fbbf24')
+          .attr('stroke-width', 8)
+          .attr('opacity', 0.15 - idx * 0.02)
+          .attr('filter', 'url(#pointGlow)')
+
+        // Main arc
+        hintsGroup.append('path')
+          .attr('d', pathData)
+          .attr('fill', 'none')
+          .attr('stroke', '#fbbf24')
+          .attr('stroke-width', 2)
+          .attr('stroke-dasharray', '6,4')
+          .attr('opacity', 0.6 - idx * 0.1)
+
+        // Arrow pointing toward center at the midpoint
+        const arrowSize = 6
+        const midDist = Math.sqrt(midX * midX + midY * midY)
+        if (midDist > 10) {
+          const arrowX = midX * 0.7  // Point along the arc
+          const arrowY = midY * 0.7
+          const dirX = -midX / midDist
+          const dirY = -midY / midDist
+          // Perpendicular
+          const perpX = -dirY
+          const perpY = dirX
+
+          hintsGroup.append('polygon')
+            .attr('points', `
+              ${arrowX + dirX * arrowSize},${arrowY + dirY * arrowSize}
+              ${arrowX + perpX * arrowSize * 0.5},${arrowY + perpY * arrowSize * 0.5}
+              ${arrowX - perpX * arrowSize * 0.5},${arrowY - perpY * arrowSize * 0.5}
+            `)
+            .attr('fill', '#fbbf24')
+            .attr('opacity', 0.7 - idx * 0.1)
+        }
+      })
+    }
 
     // Update depth lines in 3D mode
     const linesGroup = g.select<SVGGElement>('g.depth-lines')
@@ -767,7 +904,7 @@ export function BullseyeVisualization({
     screenPoints.forEach(p => newPositions.set(p.word, { x: p.screenX, y: p.screenY }))
     previousPointsRef.current = newPositions
 
-  }, [screenPoints, dimensions, showLabels, is3D, autoRotate])
+  }, [screenPoints, dimensions, showLabels, showHints, hotPairs, is3D, autoRotate])
 
   return (
     <div className="w-full" ref={containerRef}>
@@ -824,6 +961,19 @@ export function BullseyeVisualization({
             `}
           >
             Labels
+          </button>
+          <button
+            onClick={() => setShowHints(!showHints)}
+            className={`
+              px-3 py-1 rounded-md text-sm font-medium transition-colors
+              ${showHints
+                ? 'bg-amber-600 text-white'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }
+            `}
+            title="Show arcs between guesses whose combination might be closer to target"
+          >
+            Hints
           </button>
         </div>
       </div>
