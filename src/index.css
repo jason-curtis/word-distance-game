@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
@@ -60,4 +58,36 @@ body {
 
 .animate-pulse-ring {
   animation: pulse-ring 2s ease-in-out infinite;
+}
+
+/* Tailwind v4 custom theme extensions */
+@theme {
+  --color-game-bg: #121213;
+  --color-tile-empty: #3a3a3c;
+  --color-tile-close: #538d4e;
+  --color-tile-warm: #b59f3b;
+  --color-tile-cold: #6b7280;
+
+  --animate-bounce-in: bounceIn 0.5s ease-out;
+  --animate-shake: shake 0.5s ease-in-out;
+  --animate-flip: flip 0.6s ease-in-out;
+
+  @keyframes bounceIn {
+    0% { transform: scale(0.3); opacity: 0; }
+    50% { transform: scale(1.05); }
+    70% { transform: scale(0.9); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+    20%, 40%, 60%, 80% { transform: translateX(4px); }
+  }
+
+  @keyframes flip {
+    0% { transform: rotateX(0); }
+    50% { transform: rotateX(90deg); }
+    100% { transform: rotateX(0); }
+  }
 }

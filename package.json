@@ -6,7 +6,11 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "prepare-words": "python3 scripts/prepare_words.py"
+    "prepare-words": "python3 scripts/prepare_words.py",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed",
+    "test:verify": "node tests/verify-game-logic.mjs"
   },
   "repository": {
     "type": "git",
@@ -20,6 +24,8 @@
     "react-router-dom": "^7.13.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.0",
+    "@tailwindcss/postcss": "^4.1.18",
     "@types/d3": "^7.4.3",
     "@types/react": "^19.2.9",
     "@types/react-dom": "^19.2.3",
