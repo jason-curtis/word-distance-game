@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import * as d3 from 'd3'
 import type { GuessResult } from '../types'
 
@@ -7,101 +7,317 @@ interface BullseyeVisualizationProps {
   rankings: Map<string, { similarity: number; rank: number }>
   targetWord: string
   totalWords: number
+  wordVectors: { words: string[]; vectors: number[][] }
 }
 
 interface PlotPoint {
   word: string
   rank: number
   similarity: number
-  x: number
-  y: number
+  // 3D coordinates (before rotation)
+  x3d: number
+  y3d: number
+  z3d: number
   isGuessed: boolean
   isTarget: boolean
 }
 
-// Ring definitions: each ring contains words up to this rank
-const RINGS = [
-  { maxRank: 10, label: 'Top 10', color: '#22c55e' },
-  { maxRank: 100, label: 'Top 100', color: '#84cc16' },
-  { maxRank: 1000, label: 'Top 1K', color: '#eab308' },
-  { maxRank: 5000, label: 'Top 5K', color: '#f97316' },
-  { maxRank: 10000, label: 'Top 10K', color: '#ef4444' },
-]
+// Compute difference vectors (guess - target), then PCA on those
+// Returns 3 principal components for 3D visualization
+function computeDifferencePCA3D(
+  targetVector: number[],
+  guessVectors: number[][]
+): { pc1: number[]; pc2: number[]; pc3: number[] } {
+  const n = guessVectors.length
+  const d = targetVector.length
+
+  if (n === 0) {
+    const pc1 = new Array(d).fill(0)
+    const pc2 = new Array(d).fill(0)
+    const pc3 = new Array(d).fill(0)
+    pc1[0] = 1
+    pc2[1] = 1
+    pc3[2] = 1
+    return { pc1, pc2, pc3 }
+  }
+
+  // Compute difference vectors
+  const diffs = guessVectors.map(v => v.map((val, i) => val - targetVector[i]))
+
+  // Compute mean
+  const mean = new Array(d).fill(0)
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < d; j++) {
+      mean[j] += diffs[i][j]
+    }
+  }
+  for (let j = 0; j < d; j++) {
+    mean[j] /= n
+  }
+
+  // Center the difference vectors
+  const centered = diffs.map(v => v.map((val, i) => val - mean[i]))
+
+  // Handle small sample sizes
+  if (n === 1) {
+    let pc1 = diffs[0].slice()
+    let norm = Math.sqrt(pc1.reduce((s, x) => s + x * x, 0))
+    if (norm > 0) pc1 = pc1.map(x => x / norm)
+
+    // Find orthogonal vectors
+    let pc2 = new Array(d).fill(0)
+    pc2[0] = 1
+    let dot = pc1.reduce((s, x, i) => s + x * pc2[i], 0)
+    pc2 = pc2.map((x, i) => x - dot * pc1[i])
+    norm = Math.sqrt(pc2.reduce((s, x) => s + x * x, 0))
+    if (norm > 0) pc2 = pc2.map(x => x / norm)
+
+    let pc3 = new Array(d).fill(0)
+    pc3[1] = 1
+    dot = pc1.reduce((s, x, i) => s + x * pc3[i], 0)
+    pc3 = pc3.map((x, i) => x - dot * pc1[i])
+    dot = pc2.reduce((s, x, i) => s + x * pc3[i], 0)
+    pc3 = pc3.map((x, i) => x - dot * pc2[i])
+    norm = Math.sqrt(pc3.reduce((s, x) => s + x * x, 0))
+    if (norm > 0) pc3 = pc3.map(x => x / norm)
+
+    return { pc1, pc2, pc3 }
+  }
+
+  // Compute covariance matrix
+  const cov: number[][] = Array(d).fill(0).map(() => Array(d).fill(0))
+  for (let i = 0; i < d; i++) {
+    for (let j = i; j < d; j++) {
+      let sum = 0
+      for (let k = 0; k < n; k++) {
+        sum += centered[k][i] * centered[k][j]
+      }
+      cov[i][j] = sum / n
+      if (i !== j) cov[j][i] = cov[i][j]
+    }
+  }
+
+  // Power iteration helper
+  const powerIteration = (matrix: number[][], orthogonalTo: number[][] = []) => {
+    let v = new Array(d).fill(0).map((_, i) => Math.sin(i * 0.1 + orthogonalTo.length) + 0.5)
+    let norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0))
+    v = v.map(x => x / norm)
+
+    for (let iter = 0; iter < 30; iter++) {
+      const newV = new Array(d).fill(0)
+      for (let i = 0; i < d; i++) {
+        for (let j = 0; j < d; j++) {
+          newV[i] += matrix[i][j] * v[j]
+        }
+      }
+      // Gram-Schmidt against all orthogonal vectors
+      for (const ortho of orthogonalTo) {
+        const dot = newV.reduce((s, x, i) => s + x * ortho[i], 0)
+        for (let i = 0; i < d; i++) {
+          newV[i] -= dot * ortho[i]
+        }
+      }
+      norm = Math.sqrt(newV.reduce((s, x) => s + x * x, 0))
+      if (norm > 1e-10) {
+        v = newV.map(x => x / norm)
+      }
+    }
+    return v
+  }
+
+  // Deflate matrix
+  const deflate = (matrix: number[][], eigenvector: number[]): number[][] => {
+    const lambda = eigenvector.reduce((s, x, i) => {
+      let sum = 0
+      for (let j = 0; j < d; j++) {
+        sum += matrix[i][j] * eigenvector[j]
+      }
+      return s + x * sum
+    }, 0)
+
+    const newMatrix: number[][] = Array(d).fill(0).map(() => Array(d).fill(0))
+    for (let i = 0; i < d; i++) {
+      for (let j = 0; j < d; j++) {
+        newMatrix[i][j] = matrix[i][j] - lambda * eigenvector[i] * eigenvector[j]
+      }
+    }
+    return newMatrix
+  }
+
+  // Find 3 principal components
+  const pc1 = powerIteration(cov)
+  const cov2 = deflate(cov, pc1)
+  const pc2 = powerIteration(cov2, [pc1])
+  const cov3 = deflate(cov2, pc2)
+  const pc3 = powerIteration(cov3, [pc1, pc2])
+
+  return { pc1, pc2, pc3 }
+}
+
+function projectDifference3D(
+  vector: number[],
+  targetVector: number[],
+  pc1: number[],
+  pc2: number[],
+  pc3: number[]
+): { x: number; y: number; z: number } {
+  let x = 0, y = 0, z = 0
+  for (let i = 0; i < vector.length; i++) {
+    const diff = vector[i] - targetVector[i]
+    x += diff * pc1[i]
+    y += diff * pc2[i]
+    z += diff * pc3[i]
+  }
+  return { x, y, z }
+}
+
+// 3D rotation and projection
+function rotatePoint(
+  x: number, y: number, z: number,
+  rotX: number, rotY: number
+): { x: number; y: number; z: number } {
+  // Rotate around Y axis
+  const cosY = Math.cos(rotY)
+  const sinY = Math.sin(rotY)
+  const x1 = x * cosY - z * sinY
+  const z1 = x * sinY + z * cosY
+
+  // Rotate around X axis
+  const cosX = Math.cos(rotX)
+  const sinX = Math.sin(rotX)
+  const y2 = y * cosX - z1 * sinX
+  const z2 = y * sinX + z1 * cosX
+
+  return { x: x1, y: y2, z: z2 }
+}
+
+// Get color based on rank
+function getRankColor(rank: number, isTarget: boolean): string {
+  if (isTarget) return '#22c55e'
+  if (rank <= 10) return '#22c55e'
+  if (rank <= 100) return '#84cc16'
+  if (rank <= 1000) return '#eab308'
+  if (rank <= 5000) return '#f97316'
+  return '#ef4444'
+}
 
 export function BullseyeVisualization({
   guesses,
   rankings,
   targetWord,
-  totalWords
+  totalWords,
+  wordVectors
 }: BullseyeVisualizationProps) {
-  // Use rankings size for validation (rankings is available for future enhancements)
   void rankings
+
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [seed, setSeed] = useState(42)
   const [showLabels, setShowLabels] = useState(true)
+  const [is3D, setIs3D] = useState(false)
   const [dimensions, setDimensions] = useState({ width: 400, height: 400 })
+  const [rotation, setRotation] = useState({ x: 0.3, y: 0 }) // Initial tilt
+  const [autoRotate, setAutoRotate] = useState(true)
+  const isDragging = useRef(false)
+  const lastMouse = useRef({ x: 0, y: 0 })
+  const animationRef = useRef<number | null>(null)
+  const previousPointsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
 
-  // Seeded random function for consistent but randomizable positions
-  const seededRandom = useMemo(() => {
-    let s = seed
-    return () => {
-      s = Math.sin(s * 9999) * 10000
-      return s - Math.floor(s)
+  // Build word index
+  const wordIndex = useMemo(() => {
+    const idx = new Map<string, number>()
+    wordVectors.words.forEach((w, i) => idx.set(w, i))
+    return idx
+  }, [wordVectors.words])
+
+  // Get target vector
+  const targetVector = useMemo(() => {
+    const idx = wordIndex.get(targetWord)
+    return idx !== undefined ? wordVectors.vectors[idx] : null
+  }, [wordIndex, targetWord, wordVectors.vectors])
+
+  // Log scale for rank -> radius
+  const logScale = useCallback((rank: number, maxRadius: number) => {
+    const logRank = Math.log10(Math.max(1, rank))
+    const logMax = Math.log10(totalWords)
+    return (logRank / logMax) * maxRadius
+  }, [totalWords])
+
+  // Compute 3D plot points
+  const plotPoints = useMemo((): PlotPoint[] => {
+    if (!targetVector) {
+      return [{
+        word: targetWord,
+        rank: 1,
+        similarity: 1,
+        x3d: 0,
+        y3d: 0,
+        z3d: 0,
+        isGuessed: false,
+        isTarget: true
+      }]
     }
-  }, [seed])
 
-  // Convert rank to radius (using log scale for better distribution)
-  const rankToRadius = useMemo(() => {
-    const maxRadius = Math.min(dimensions.width, dimensions.height) / 2 - 30
-    const minRadius = 10
-
-    return (rank: number) => {
-      if (rank === 1) return 0 // Target at center
-      // Use logarithmic scale for better distribution
-      const logRank = Math.log10(rank)
-      const logMax = Math.log10(totalWords)
-      return minRadius + (logRank / logMax) * (maxRadius - minRadius)
-    }
-  }, [dimensions, totalWords])
-
-  // Generate plot points for guessed words
-  const plotPoints = useMemo(() => {
-    const points: PlotPoint[] = []
-    const guessedWords = new Set(guesses.map(g => g.word))
-
-    // Add target word at center
-    points.push({
+    const points: PlotPoint[] = [{
       word: targetWord,
       rank: 1,
       similarity: 1,
-      x: 0,
-      y: 0,
-      isGuessed: guessedWords.has(targetWord),
+      x3d: 0,
+      y3d: 0,
+      z3d: 0,
+      isGuessed: guesses.some(g => g.word === targetWord),
       isTarget: true
-    })
+    }]
 
-    // Add guessed words
-    const random = seededRandom
-    guesses.forEach((guess) => {
-      if (guess.word === targetWord) return
+    if (guesses.length === 0) {
+      return points
+    }
 
-      const radius = rankToRadius(guess.rank)
-      const angle = random() * Math.PI * 2
+    const guessVectors: number[][] = []
+    const validGuesses: GuessResult[] = []
+
+    for (const guess of guesses) {
+      if (guess.word === targetWord) continue
+      const idx = wordIndex.get(guess.word)
+      if (idx !== undefined) {
+        guessVectors.push(wordVectors.vectors[idx])
+        validGuesses.push(guess)
+      }
+    }
+
+    if (guessVectors.length === 0) {
+      return points
+    }
+
+    // Compute 3D PCA
+    const { pc1, pc2, pc3 } = computeDifferencePCA3D(targetVector, guessVectors)
+    const projections = guessVectors.map(v => projectDifference3D(v, targetVector, pc1, pc2, pc3))
+
+    // Get the direction in 3D space, but use log(rank) for radius
+    validGuesses.forEach((guess, i) => {
+      const proj = projections[i]
+      // Normalize to get direction
+      const projDist = Math.sqrt(proj.x * proj.x + proj.y * proj.y + proj.z * proj.z)
+      const dirX = projDist > 0 ? proj.x / projDist : 1
+      const dirY = projDist > 0 ? proj.y / projDist : 0
+      const dirZ = projDist > 0 ? proj.z / projDist : 0
+
+      // Use log(rank) for distance from center (normalized to 1)
+      const normalizedRadius = logScale(guess.rank, 1)
 
       points.push({
         word: guess.word,
         rank: guess.rank,
         similarity: guess.similarity,
-        x: Math.cos(angle) * radius,
-        y: Math.sin(angle) * radius,
+        x3d: dirX * normalizedRadius,
+        y3d: dirY * normalizedRadius,
+        z3d: dirZ * normalizedRadius,
         isGuessed: true,
         isTarget: false
       })
     })
 
     return points
-  }, [guesses, targetWord, seededRandom, rankToRadius])
+  }, [guesses, targetWord, targetVector, wordIndex, wordVectors.vectors, logScale])
 
   // Handle resize
   useEffect(() => {
@@ -111,7 +327,7 @@ export function BullseyeVisualization({
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width } = entry.contentRect
-        const size = Math.min(width, 500)
+        const size = Math.min(width, 600)
         setDimensions({ width: size, height: size })
       }
     })
@@ -120,7 +336,105 @@ export function BullseyeVisualization({
     return () => observer.disconnect()
   }, [])
 
-  // D3 rendering
+  // Auto-rotation effect
+  useEffect(() => {
+    if (!is3D || !autoRotate) {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+        animationRef.current = null
+      }
+      return
+    }
+
+    let lastTime = performance.now()
+    const animate = (time: number) => {
+      const delta = time - lastTime
+      lastTime = time
+
+      // Rotate slowly with gentle wobble
+      setRotation(prev => ({
+        x: 0.3 + Math.sin(time * 0.0002) * 0.15, // Gentle wobble
+        y: prev.y + delta * 0.0004
+      }))
+
+      animationRef.current = requestAnimationFrame(animate)
+    }
+
+    animationRef.current = requestAnimationFrame(animate)
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+      }
+    }
+  }, [is3D, autoRotate])
+
+  // Mouse handlers for 3D rotation
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!is3D) return
+    isDragging.current = true
+    setAutoRotate(false) // Stop auto-rotation when user drags
+    lastMouse.current = { x: e.clientX, y: e.clientY }
+  }, [is3D])
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging.current || !is3D) return
+    const dx = e.clientX - lastMouse.current.x
+    const dy = e.clientY - lastMouse.current.y
+    lastMouse.current = { x: e.clientX, y: e.clientY }
+
+    setRotation(prev => ({
+      x: prev.x + dy * 0.01,
+      y: prev.y + dx * 0.01
+    }))
+  }, [is3D])
+
+  const handleMouseUp = useCallback(() => {
+    isDragging.current = false
+  }, [])
+
+  const handleMouseLeave = useCallback(() => {
+    isDragging.current = false
+  }, [])
+
+  // Compute screen positions for points
+  const screenPoints = useMemo(() => {
+    const maxRadius = Math.min(dimensions.width, dimensions.height) / 2 - 50
+
+    const points = plotPoints.map(p => {
+      let screenX: number, screenY: number, screenZ: number
+
+      if (is3D) {
+        const rotated = rotatePoint(
+          p.x3d * maxRadius,
+          p.y3d * maxRadius,
+          p.z3d * maxRadius,
+          rotation.x,
+          rotation.y
+        )
+        screenX = rotated.x
+        screenY = rotated.y
+        screenZ = rotated.z
+      } else {
+        const angle = Math.atan2(p.y3d, p.x3d)
+        const radius = logScale(p.rank, maxRadius)
+        screenX = p.isTarget ? 0 : Math.cos(angle) * radius
+        screenY = p.isTarget ? 0 : Math.sin(angle) * radius
+        screenZ = 0
+      }
+
+      return { ...p, screenX, screenY, screenZ }
+    })
+
+    // Sort by Z for proper depth ordering in 3D
+    if (is3D) {
+      points.sort((a, b) => a.screenZ - b.screenZ)
+    }
+
+    return points
+  }, [plotPoints, dimensions, is3D, rotation, logScale])
+
+  // D3 rendering - background elements
   useEffect(() => {
     if (!svgRef.current) return
 
@@ -128,143 +442,377 @@ export function BullseyeVisualization({
     const { width, height } = dimensions
     const centerX = width / 2
     const centerY = height / 2
-    const maxRadius = Math.min(width, height) / 2 - 30
+    const maxRadius = Math.min(width, height) / 2 - 50
 
+    // Clear and set up
     svg.selectAll('*').remove()
 
-    // Create main group centered
+    // Add defs for filters
+    const defs = svg.append('defs')
+
+    const glowFilter = defs.append('filter')
+      .attr('id', 'pointGlow')
+      .attr('x', '-50%').attr('y', '-50%')
+      .attr('width', '200%').attr('height', '200%')
+    glowFilter.append('feGaussianBlur')
+      .attr('stdDeviation', '3')
+      .attr('result', 'coloredBlur')
+    const feMerge = glowFilter.append('feMerge')
+    feMerge.append('feMergeNode').attr('in', 'coloredBlur')
+    feMerge.append('feMergeNode').attr('in', 'SourceGraphic')
+
     const g = svg.append('g')
+      .attr('class', 'main')
       .attr('transform', `translate(${centerX}, ${centerY})`)
 
-    // Draw rings
-    RINGS.forEach((ring, i) => {
-      const radius = rankToRadius(ring.maxRank)
-      const prevRadius = i === 0 ? 0 : rankToRadius(RINGS[i - 1].maxRank)
+    // Rank thresholds
+    const rankThresholds = [
+      { rank: 10, color: '#22c55e', label: 'Top 10' },
+      { rank: 100, color: '#84cc16', label: 'Top 100' },
+      { rank: 1000, color: '#eab308', label: 'Top 1,000' },
+      { rank: 5000, color: '#f97316', label: 'Top 5,000' },
+      { rank: totalWords, color: '#ef4444', label: '' }
+    ]
 
-      // Ring arc
-      g.append('circle')
-        .attr('r', radius)
-        .attr('fill', 'none')
-        .attr('stroke', ring.color)
-        .attr('stroke-width', 1)
-        .attr('stroke-opacity', 0.3)
-        .attr('stroke-dasharray', '4,4')
+    // Background group
+    const bgGroup = g.append('g').attr('class', 'background')
 
-      // Ring fill
-      g.append('circle')
-        .attr('r', radius)
-        .attr('fill', ring.color)
-        .attr('fill-opacity', 0.05)
+    if (is3D) {
+      // 3D mode: draw wireframe spheres with great circles
+      const sphereRadii = rankThresholds.slice(0, -1).map(t => logScale(t.rank, maxRadius))
 
-      // Label
-      if (showLabels && radius > prevRadius + 30) {
-        g.append('text')
-          .attr('x', 0)
-          .attr('y', -radius + 12)
-          .attr('text-anchor', 'middle')
-          .attr('fill', ring.color)
-          .attr('font-size', '10px')
-          .attr('opacity', 0.7)
-          .text(ring.label)
+      const drawGreatCircle = (
+        radius: number, color: string,
+        normalX: number, normalY: number, normalZ: number,
+        opacity: number
+      ) => {
+        const points: { x: number; y: number; z: number }[] = []
+        const segments = 64
+
+        let ux = -normalY, uy = normalX, uz = 0
+        const uLen = Math.sqrt(ux * ux + uy * uy + uz * uz)
+        if (uLen < 0.001) { ux = 1; uy = 0; uz = 0 }
+        else { ux /= uLen; uy /= uLen; uz /= uLen }
+
+        const vx = normalY * uz - normalZ * uy
+        const vy = normalZ * ux - normalX * uz
+        const vz = normalX * uy - normalY * ux
+
+        for (let i = 0; i <= segments; i++) {
+          const theta = (i / segments) * Math.PI * 2
+          points.push({
+            x: radius * (Math.cos(theta) * ux + Math.sin(theta) * vx),
+            y: radius * (Math.cos(theta) * uy + Math.sin(theta) * vy),
+            z: radius * (Math.cos(theta) * uz + Math.sin(theta) * vz)
+          })
+        }
+
+        const projected = points.map(p => rotatePoint(p.x, p.y, p.z, rotation.x, rotation.y))
+        const pathData = projected.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+
+        bgGroup.append('path')
+          .attr('d', pathData)
+          .attr('fill', 'none')
+          .attr('stroke', color)
+          .attr('stroke-width', 1.5)
+          .attr('opacity', opacity)
       }
-    })
 
-    // Draw outer boundary
-    g.append('circle')
-      .attr('r', maxRadius)
-      .attr('fill', 'none')
-      .attr('stroke', '#4b5563')
-      .attr('stroke-width', 2)
+      sphereRadii.forEach((radius, idx) => {
+        const color = rankThresholds[idx].color
+        drawGreatCircle(radius, color, 0, 1, 0, 0.4)
+        drawGreatCircle(radius, color, 1, 0, 0, 0.25)
+        drawGreatCircle(radius, color, 0, 0, 1, 0.25)
+        drawGreatCircle(radius, color, 0.7, 0.7, 0, 0.15)
+      })
 
-    // Draw crosshairs
-    g.append('line')
-      .attr('x1', -maxRadius)
-      .attr('x2', maxRadius)
-      .attr('y1', 0)
-      .attr('y2', 0)
-      .attr('stroke', '#374151')
-      .attr('stroke-width', 1)
-      .attr('stroke-dasharray', '2,4')
+      bgGroup.append('circle')
+        .attr('r', maxRadius)
+        .attr('fill', 'none')
+        .attr('stroke', '#374151')
+        .attr('stroke-width', 1)
+        .attr('opacity', 0.5)
 
-    g.append('line')
-      .attr('x1', 0)
-      .attr('x2', 0)
-      .attr('y1', -maxRadius)
-      .attr('y2', maxRadius)
-      .attr('stroke', '#374151')
-      .attr('stroke-width', 1)
-      .attr('stroke-dasharray', '2,4')
+    } else {
+      // 2D mode: draw bullseye rings
+      const logMax = Math.log10(totalWords)
+      const logScaleLocal = (rank: number) => (Math.log10(Math.max(1, rank)) / logMax) * maxRadius
 
-    // Draw points
-    const pointsGroup = g.append('g').attr('class', 'points')
+      for (let i = rankThresholds.length - 1; i >= 0; i--) {
+        const threshold = rankThresholds[i]
+        bgGroup.append('circle')
+          .attr('r', logScaleLocal(threshold.rank))
+          .attr('fill', threshold.color)
+          .attr('opacity', 0.15)
+      }
 
-    plotPoints.forEach((point) => {
-      const pointG = pointsGroup.append('g')
-        .attr('transform', `translate(${point.x}, ${point.y})`)
-        .attr('class', 'point')
-        .style('cursor', 'pointer')
+      rankThresholds.forEach((threshold, i) => {
+        if (i === rankThresholds.length - 1) return
+        const radius = logScaleLocal(threshold.rank)
+        bgGroup.append('circle')
+          .attr('r', radius)
+          .attr('fill', 'none')
+          .attr('stroke', threshold.color)
+          .attr('stroke-width', 2)
+          .attr('opacity', 0.6)
 
-      // Point circle
-      const radius = point.isTarget ? 12 : 6
-      const color = point.isTarget
-        ? '#22c55e'
-        : point.rank <= 10
-          ? '#22c55e'
-          : point.rank <= 100
-            ? '#84cc16'
-            : point.rank <= 1000
-              ? '#eab308'
-              : '#f97316'
+        if (threshold.label) {
+          bgGroup.append('text')
+            .attr('x', radius + 4)
+            .attr('y', -4)
+            .attr('fill', threshold.color)
+            .attr('font-size', '10px')
+            .attr('opacity', 0.8)
+            .text(threshold.label)
+        }
+      })
+
+      bgGroup.append('circle')
+        .attr('r', maxRadius)
+        .attr('fill', 'none')
+        .attr('stroke', '#374151')
+        .attr('stroke-width', 2)
+    }
+
+    // Depth lines group (3D only)
+    g.append('g').attr('class', 'depth-lines')
+    // Points group
+    g.append('g').attr('class', 'points')
+
+  }, [dimensions, is3D, rotation, totalWords, logScale])
+
+  // D3 rendering - points with transitions
+  useEffect(() => {
+    if (!svgRef.current || screenPoints.length === 0) return
+
+    const svg = d3.select(svgRef.current)
+    const g = svg.select<SVGGElement>('g.main')
+    if (g.empty()) return
+
+    const maxRadius = Math.min(dimensions.width, dimensions.height) / 2 - 50
+
+    // Update depth lines in 3D mode
+    const linesGroup = g.select<SVGGElement>('g.depth-lines')
+    linesGroup.selectAll('*').remove()
+
+    if (is3D) {
+      screenPoints.forEach(p => {
+        if (p.isTarget) return
+        const depthScale = 0.7 + 0.3 * ((p.screenZ + maxRadius) / (2 * maxRadius))
+        linesGroup.append('line')
+          .attr('x1', 0).attr('y1', 0)
+          .attr('x2', p.screenX).attr('y2', p.screenY)
+          .attr('stroke', getRankColor(p.rank, false))
+          .attr('stroke-width', 1)
+          .attr('opacity', 0.15 * depthScale)
+      })
+    }
+
+    // Points with data join
+    const pointsGroup = g.select<SVGGElement>('g.points')
+
+    interface ScreenPoint {
+      word: string
+      rank: number
+      similarity: number
+      x3d: number
+      y3d: number
+      z3d: number
+      isGuessed: boolean
+      isTarget: boolean
+      screenX: number
+      screenY: number
+      screenZ: number
+    }
+
+    const pointSelection = pointsGroup
+      .selectAll<SVGGElement, ScreenPoint>('g.point')
+      .data(screenPoints, d => d.word)
+
+    // Remove old points
+    pointSelection.exit()
+      .transition()
+      .duration(500)
+      .style('opacity', 0)
+      .remove()
+
+    // Add new points
+    const enterPoints = pointSelection.enter()
+      .append('g')
+      .attr('class', 'point')
+      .attr('transform', d => {
+        // Start from previous position or center
+        const prev = previousPointsRef.current.get(d.word)
+        return `translate(${prev?.x ?? 0}, ${prev?.y ?? 0})`
+      })
+      .style('opacity', 0)
+
+    // Create point structure for new points
+    enterPoints.each(function(d) {
+      const pointG = d3.select(this)
+      const depthScale = is3D ? 0.7 + 0.3 * ((d.screenZ + maxRadius) / (2 * maxRadius)) : 1
+      const baseRadius = d.isTarget ? 14 : 7
+      const pointRadius = baseRadius * depthScale
+      const color = getRankColor(d.rank, d.isTarget)
+
+      if (is3D) {
+        pointG.append('circle')
+          .attr('class', 'glow')
+          .attr('r', pointRadius * 1.5)
+          .attr('fill', color)
+          .attr('opacity', 0.3 * depthScale)
+          .attr('filter', 'url(#pointGlow)')
+      }
 
       pointG.append('circle')
-        .attr('r', radius)
+        .attr('class', 'main')
+        .attr('r', pointRadius)
         .attr('fill', color)
         .attr('stroke', 'white')
-        .attr('stroke-width', point.isTarget ? 3 : 1)
+        .attr('stroke-width', d.isTarget ? 3 : 1.5)
 
-      // Target icon
-      if (point.isTarget && point.isGuessed) {
-        pointG.append('text')
-          .attr('text-anchor', 'middle')
-          .attr('dominant-baseline', 'central')
-          .attr('font-size', '14px')
-          .text('🎯')
-      }
+      pointG.append('text')
+        .attr('class', 'shadow')
+        .attr('x', pointRadius + 6)
+        .attr('y', 1)
+        .attr('dominant-baseline', 'central')
+        .attr('fill', 'black')
+        .attr('font-size', `${12 * depthScale}px`)
+        .attr('font-weight', d.isTarget ? 'bold' : 'normal')
 
-      // Label
-      if (showLabels) {
-        pointG.append('text')
-          .attr('x', radius + 4)
-          .attr('y', 0)
-          .attr('dominant-baseline', 'central')
-          .attr('fill', 'white')
-          .attr('font-size', '11px')
-          .attr('font-weight', point.isTarget ? 'bold' : 'normal')
-          .text(point.isTarget && !point.isGuessed ? '???' : point.word)
-      }
-
-      // Tooltip on hover
-      pointG.on('mouseenter', function () {
-        d3.select(this).select('circle')
-          .transition()
-          .duration(150)
-          .attr('r', radius * 1.5)
-      })
-      .on('mouseleave', function () {
-        d3.select(this).select('circle')
-          .transition()
-          .duration(150)
-          .attr('r', radius)
-      })
+      pointG.append('text')
+        .attr('class', 'label')
+        .attr('x', pointRadius + 5)
+        .attr('y', 0)
+        .attr('dominant-baseline', 'central')
+        .attr('fill', 'white')
+        .attr('font-size', `${12 * depthScale}px`)
+        .attr('font-weight', d.isTarget ? 'bold' : 'normal')
     })
 
-  }, [plotPoints, dimensions, showLabels, rankToRadius])
+    // Merge and update all points
+    const allPoints = enterPoints.merge(pointSelection)
+
+    // Determine transition duration - fast for 3D rotation, slower for new guesses
+    const duration = is3D && autoRotate ? 50 : 600
+
+    allPoints
+      .transition()
+      .duration(duration)
+      .ease(d3.easeCubicOut)
+      .attr('transform', d => `translate(${d.screenX}, ${d.screenY})`)
+      .style('opacity', 1)
+
+    // Update point appearance
+    allPoints.each(function(d) {
+      const pointG = d3.select(this)
+      const depthScale = is3D ? 0.7 + 0.3 * ((d.screenZ + maxRadius) / (2 * maxRadius)) : 1
+      const baseRadius = d.isTarget ? 14 : 7
+      const pointRadius = baseRadius * depthScale
+      const color = getRankColor(d.rank, d.isTarget)
+      const labelText = (d.isTarget && !d.isGuessed) ? '???' : d.word
+
+      pointG.select('circle.glow')
+        .attr('r', pointRadius * 1.5)
+        .attr('fill', color)
+        .attr('opacity', is3D ? 0.3 * depthScale : 0)
+
+      pointG.select('circle.main')
+        .attr('r', pointRadius)
+        .attr('fill', color)
+        .attr('opacity', is3D ? 0.7 + 0.3 * depthScale : 1)
+
+      pointG.select('text.shadow')
+        .attr('x', pointRadius + 6)
+        .attr('font-size', `${12 * depthScale}px`)
+        .attr('opacity', is3D && showLabels ? 0.5 * depthScale : 0)
+        .text(labelText)
+
+      pointG.select('text.label')
+        .attr('x', pointRadius + 5)
+        .attr('font-size', `${12 * depthScale}px`)
+        .attr('opacity', showLabels ? (is3D ? 0.6 + 0.4 * depthScale : 1) : 0)
+        .text(labelText)
+    })
+
+    // Hover effects
+    allPoints
+      .on('mouseenter', function(_, d) {
+        const depthScale = is3D ? 0.7 + 0.3 * ((d.screenZ + maxRadius) / (2 * maxRadius)) : 1
+        const baseRadius = d.isTarget ? 14 : 7
+        const pointRadius = baseRadius * depthScale
+
+        d3.select(this).select('circle.main')
+          .transition().duration(150)
+          .attr('r', pointRadius * 1.4)
+        d3.select(this).select('circle.glow')
+          .transition().duration(150)
+          .attr('r', pointRadius * 2)
+      })
+      .on('mouseleave', function(_, d) {
+        const depthScale = is3D ? 0.7 + 0.3 * ((d.screenZ + maxRadius) / (2 * maxRadius)) : 1
+        const baseRadius = d.isTarget ? 14 : 7
+        const pointRadius = baseRadius * depthScale
+
+        d3.select(this).select('circle.main')
+          .transition().duration(150)
+          .attr('r', pointRadius)
+        d3.select(this).select('circle.glow')
+          .transition().duration(150)
+          .attr('r', pointRadius * 1.5)
+      })
+
+    // Save positions for next render
+    const newPositions = new Map<string, { x: number; y: number }>()
+    screenPoints.forEach(p => newPositions.set(p.word, { x: p.screenX, y: p.screenY }))
+    previousPointsRef.current = newPositions
+
+  }, [screenPoints, dimensions, showLabels, is3D, autoRotate])
 
   return (
     <div className="w-full" ref={containerRef}>
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold text-white">Similarity Map</h3>
+        <div>
+          <h3 className="text-lg font-semibold text-white">
+            {is3D ? '3D Semantic Space' : 'Bullseye'}
+          </h3>
+          <p className="text-xs text-gray-500 mt-1">
+            {is3D
+              ? 'Drag to rotate • Distance = log(rank) • Position = semantic direction'
+              : 'Target at center • Distance = log(rank) • Angle = semantic direction'
+            }
+          </p>
+        </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => {
+              setIs3D(!is3D)
+              if (!is3D) setAutoRotate(true) // Start auto-rotate when entering 3D
+            }}
+            className={`
+              px-3 py-1 rounded-md text-sm font-medium transition-colors
+              ${is3D
+                ? 'bg-purple-600 text-white'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }
+            `}
+          >
+            {is3D ? '3D' : '2D'}
+          </button>
+          {is3D && (
+            <button
+              onClick={() => setAutoRotate(!autoRotate)}
+              className={`
+                px-3 py-1 rounded-md text-sm font-medium transition-colors
+                ${autoRotate
+                  ? 'bg-green-600 text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }
+              `}
+            >
+              {autoRotate ? '⏸' : '▶'}
+            </button>
+          )}
           <button
             onClick={() => setShowLabels(!showLabels)}
             className={`
@@ -277,36 +825,31 @@ export function BullseyeVisualization({
           >
             Labels
           </button>
-          <button
-            onClick={() => setSeed(s => s + 1)}
-            className="px-3 py-1 rounded-md text-sm font-medium bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
-            title="Randomize positions"
-          >
-            🔀 Shuffle
-          </button>
         </div>
       </div>
 
-      <div className="bg-gray-900 rounded-lg p-4 flex items-center justify-center">
+      <div
+        className="bg-gray-900 rounded-lg p-4 flex items-center justify-center"
+        style={{ cursor: is3D ? 'grab' : 'default' }}
+      >
         <svg
           ref={svgRef}
           width={dimensions.width}
           height={dimensions.height}
           className="overflow-visible"
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
+          style={{ cursor: is3D ? (isDragging.current ? 'grabbing' : 'grab') : 'default' }}
         />
       </div>
 
-      {/* Legend */}
-      <div className="mt-4 flex flex-wrap justify-center gap-4 text-sm">
-        {RINGS.slice(0, 4).map((ring) => (
-          <div key={ring.label} className="flex items-center gap-1">
-            <div
-              className="w-3 h-3 rounded-full"
-              style={{ backgroundColor: ring.color }}
-            />
-            <span className="text-gray-400">{ring.label}</span>
-          </div>
-        ))}
+      <div className="mt-3 text-center text-xs text-gray-500">
+        {is3D
+          ? 'Click and drag to rotate. Closer to center = higher rank.'
+          : 'Closer to center = higher rank (more similar). Angle shows semantic relationship.'
+        }
       </div>
     </div>
   )

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { useGame } from './hooks/useGame'
 import {
@@ -17,12 +17,118 @@ function Game() {
     totalWords,
     makeGuess,
     rankings,
-    targetWord
+    targetWord,
+    wordVectors
   } = useGame()
 
   const [showCelebration, setShowCelebration] = useState(false)
-  const [sortBy, setSortBy] = useState<'guess' | 'rank'>('guess')
-  const [activeTab, setActiveTab] = useState<'list' | 'viz'>('list')
+  const [activeTab, setActiveTab] = useState<'list' | 'viz'>('viz')
+
+  // Expose reset function globally for console access
+  const hasShownConsoleHelp = useRef(false)
+  useEffect(() => {
+    (window as any).resetGame = () => {
+      console.clear()
+      console.log('%c🔄 RESETTING GAME STATE 🔄', 'color: #ef4444; font-size: 20px; font-weight: bold;')
+      console.log('%cClearing localStorage and reloading...', 'color: #fbbf24')
+      localStorage.clear()
+      setTimeout(() => window.location.reload(), 500)
+    };
+    (window as any).showAnswer = () => {
+      console.log(`%cTarget: %c${targetWord.toUpperCase()}`, 'color: #fbbf24', 'color: #22c55e; font-size: 20px; font-weight: bold')
+    };
+
+    // Only show help once per page load
+    if (!hasShownConsoleHelp.current) {
+      console.log('%c💡 Dev Tools Available:', 'color: #6b7280; font-weight: bold')
+      console.log('  %cresetGame()%c - Clear game state and reload', 'color: #60a5fa', 'color: inherit')
+      console.log('  %cshowAnswer()%c - Reveal target word', 'color: #60a5fa', 'color: inherit')
+      console.log('  Or type %c"cheat"%c for full debug info, %c"reset"%c to restart', 'color: #22c55e', 'color: inherit', 'color: #ef4444', 'color: inherit')
+      hasShownConsoleHelp.current = true
+    }
+
+    return () => {
+      delete (window as any).resetGame
+      delete (window as any).showAnswer
+    }
+  }, [targetWord])
+
+  // Cheat codes: type "cheat" to reveal target word, "reset" to clear game state
+  const cheatCodeRef = useRef('')
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Ignore if typing in an input or textarea
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return
+      }
+
+      // Only track alphanumeric keys
+      if (e.key.length === 1 && e.key.match(/[a-z]/i)) {
+        cheatCodeRef.current += e.key.toLowerCase()
+
+        // Keep only last 5 characters
+        if (cheatCodeRef.current.length > 5) {
+          cheatCodeRef.current = cheatCodeRef.current.slice(-5)
+        }
+
+        // Check for reset code
+        if (cheatCodeRef.current === 'reset') {
+          console.clear()
+          console.log('%c🔄 RESETTING GAME STATE 🔄', 'color: #ef4444; font-size: 20px; font-weight: bold;')
+          console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #ef4444')
+          console.log('%cClearing localStorage and reloading...', 'color: #fbbf24')
+          localStorage.clear()
+          setTimeout(() => {
+            window.location.reload()
+          }, 500)
+          cheatCodeRef.current = ''
+          return
+        }
+
+        // Check for cheat code
+        if (cheatCodeRef.current === 'cheat') {
+          console.clear()
+          console.log('%c🎯 CHEAT MODE ACTIVATED 🎯', 'color: #22c55e; font-size: 20px; font-weight: bold;')
+          console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #22c55e')
+          console.log(`%cTarget Word: %c${targetWord.toUpperCase()}`, 'color: #fbbf24; font-size: 16px', 'color: #22c55e; font-size: 20px; font-weight: bold')
+          console.log(`%cGame Number: %c#${gameNumber}`, 'color: #fbbf24', 'color: white; font-weight: bold')
+          console.log(`%cTotal Words: %c${totalWords.toLocaleString()}`, 'color: #fbbf24', 'color: white; font-weight: bold')
+          console.log(`%cGuesses Made: %c${guesses.length}`, 'color: #fbbf24', 'color: white; font-weight: bold')
+          console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #22c55e')
+
+          if (guesses.length > 0) {
+            const bestGuess = guesses.reduce((best, g) => g.rank < best.rank ? g : best)
+            console.log(`%cBest Guess: %c"${bestGuess.word}" %c(rank #${bestGuess.rank})`,
+              'color: #fbbf24', 'color: #60a5fa; font-weight: bold', 'color: #9ca3af')
+
+            // Show top 10 closest words
+            const sortedGuesses = [...guesses].sort((a, b) => a.rank - b.rank).slice(0, 10)
+            console.log('\n%cTop 10 Closest Guesses:', 'color: #fbbf24; font-weight: bold')
+            sortedGuesses.forEach((g, i) => {
+              console.log(`  ${i + 1}. "${g.word}" - rank #${g.rank}`)
+            })
+          }
+
+          console.log('\n%cHint: Top 1000 words to try:', 'color: #fbbf24; font-weight: bold')
+          const topWords = Array.from(rankings.entries())
+            .sort((a, b) => a[1].rank - b[1].rank)
+            .slice(0, 20)
+            .filter(([word]) => !guesses.some(g => g.word === word))
+            .slice(0, 10)
+            .map(([word, data]) => `"${word}" (#${data.rank})`)
+          console.log('  ' + topWords.join(', '))
+
+          console.log('\n%c💡 Tip: Type "reset" to clear game state and start over', 'color: #6b7280; font-style: italic')
+
+          cheatCodeRef.current = '' // Reset
+        }
+      }
+    }
+
+    window.addEventListener('keypress', handleKeyPress)
+    return () => window.removeEventListener('keypress', handleKeyPress)
+  }, [targetWord, gameNumber, totalWords, guesses, rankings])
 
   const handleGuess = (word: string) => {
     const result = makeGuess(word)
@@ -88,8 +194,6 @@ function Game() {
           <GuessList
             guesses={guesses}
             totalWords={totalWords}
-            sortBy={sortBy}
-            onSortChange={setSortBy}
           />
         ) : (
           <BullseyeVisualization
@@ -97,6 +201,7 @@ function Game() {
             rankings={rankings}
             targetWord={targetWord}
             totalWords={totalWords}
+            wordVectors={wordVectors}
           />
         )}
       </main>

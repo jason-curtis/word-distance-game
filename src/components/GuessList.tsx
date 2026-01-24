@@ -4,17 +4,11 @@ import { getRankColor, getRankEmoji } from '../utils/similarity'
 interface GuessListProps {
   guesses: GuessResult[]
   totalWords: number
-  sortBy: 'guess' | 'rank'
-  onSortChange: (sort: 'guess' | 'rank') => void
 }
 
-export function GuessList({ guesses, totalWords, sortBy, onSortChange }: GuessListProps) {
-  const sortedGuesses = [...guesses].sort((a, b) => {
-    if (sortBy === 'rank') {
-      return a.rank - b.rank
-    }
-    return b.guessNumber - a.guessNumber // Most recent first
-  })
+export function GuessList({ guesses, totalWords }: GuessListProps) {
+  // Always sort by rank (best similarity first)
+  const sortedGuesses = [...guesses].sort((a, b) => a.rank - b.rank)
 
   if (guesses.length === 0) {
     return (
@@ -27,34 +21,6 @@ export function GuessList({ guesses, totalWords, sortBy, onSortChange }: GuessLi
 
   return (
     <div className="w-full max-w-md mx-auto">
-      {/* Sort controls */}
-      <div className="flex justify-center gap-2 mb-4">
-        <button
-          onClick={() => onSortChange('guess')}
-          className={`
-            px-3 py-1 rounded-md text-sm font-medium transition-colors
-            ${sortBy === 'guess'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            }
-          `}
-        >
-          By Guess Order
-        </button>
-        <button
-          onClick={() => onSortChange('rank')}
-          className={`
-            px-3 py-1 rounded-md text-sm font-medium transition-colors
-            ${sortBy === 'rank'
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            }
-          `}
-        >
-          By Similarity
-        </button>
-      </div>
-
       {/* Guess list */}
       <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
         {sortedGuesses.map((guess) => (
@@ -109,10 +75,7 @@ function GuessRow({ guess, totalWords }: GuessRowProps) {
             {guess.isCorrect && ' 🎉'}
           </span>
         </div>
-        <div className="flex items-center gap-4 text-sm">
-          <span className="text-gray-400">
-            #{guess.guessNumber}
-          </span>
+        <div className="flex items-center gap-2 text-sm">
           <span className={`font-bold px-2 py-0.5 rounded ${colorClass}`}>
             #{guess.rank}
           </span>

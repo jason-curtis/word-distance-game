@@ -22,6 +22,7 @@ interface UseGameReturn {
   rankings: Map<string, { similarity: number; rank: number }>
   isValidWord: (word: string) => boolean
   getHint: () => string | null
+  wordVectors: { words: string[]; vectors: number[][] }
 }
 
 export function useGame(): UseGameReturn {
@@ -139,6 +140,7 @@ export function useGame(): UseGameReturn {
     makeGuess,
     rankings,
     isValidWord,
-    getHint
+    getHint,
+    wordVectors: { words, vectors }
   }
 }
