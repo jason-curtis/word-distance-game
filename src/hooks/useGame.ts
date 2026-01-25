@@ -27,6 +27,7 @@ interface UseGameReturn {
   wordVectors: { words: string[]; vectors: number[][] }
   isLoading: boolean
   loadingProgress: string
+  isRandomMode: boolean
 }
 
 export function useGame(): UseGameReturn {
@@ -74,13 +75,22 @@ export function useGame(): UseGameReturn {
   const vectors = wordData?.vectors ?? []
   const totalWords = words.length
 
-  // Get today's target word
+  // Get target word - either from random seed in localStorage or daily
   const targetIndex = useMemo(() => {
     if (words.length === 0) return 0
+
+    // Check for custom random seed (set by "New random word" button)
+    const randomSeed = localStorage.getItem('randomWordSeed')
+    if (randomSeed) {
+      return parseInt(randomSeed, 10) % words.length
+    }
+
+    // Otherwise use daily word
     return getDailyWordIndex(words, today)
   }, [words, today])
 
   const targetWord = words[targetIndex] ?? ''
+  const isRandomMode = !!localStorage.getItem('randomWordSeed')
 
   // Compute rankings (memoized)
   const rankings = useMemo(() => {
@@ -188,6 +198,7 @@ export function useGame(): UseGameReturn {
     getHint,
     wordVectors: { words, vectors },
     isLoading,
-    loadingProgress
+    loadingProgress,
+    isRandomMode
   }
 }

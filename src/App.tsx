@@ -20,7 +20,8 @@ function Game() {
     targetWord,
     wordVectors,
     isLoading,
-    loadingProgress
+    loadingProgress,
+    isRandomMode
   } = useGame()
 
   const [showCelebration, setShowCelebration] = useState(false)
@@ -141,7 +142,17 @@ function Game() {
   }
 
   const handleNewGame = () => {
+    // Set a random seed to get a different word
+    const randomSeed = Math.floor(Math.random() * 1000000)
     localStorage.clear()
+    localStorage.setItem('randomWordSeed', randomSeed.toString())
+    window.location.reload()
+  }
+
+  const handleDailyGame = () => {
+    // Clear random seed to go back to daily word
+    localStorage.removeItem('randomWordSeed')
+    localStorage.removeItem('semantle-game-state')
     window.location.reload()
   }
 
@@ -229,13 +240,25 @@ function Game() {
 
       {/* Footer */}
       <footer className="border-t border-gray-800 py-4 text-center text-gray-500 text-sm">
-        <p className="mb-2">A semantic word guessing game powered by word embeddings</p>
-        <button
-          onClick={handleNewGame}
-          className="text-xs text-gray-600 hover:text-gray-400 underline"
-        >
-          New random word
-        </button>
+        <p className="mb-2">
+          {isRandomMode ? '🎲 Playing random mode' : '📅 Daily puzzle'}
+        </p>
+        <div className="flex justify-center gap-4">
+          <button
+            onClick={handleNewGame}
+            className="text-xs text-gray-600 hover:text-gray-400 underline"
+          >
+            New random word
+          </button>
+          {isRandomMode && (
+            <button
+              onClick={handleDailyGame}
+              className="text-xs text-gray-600 hover:text-gray-400 underline"
+            >
+              Back to daily
+            </button>
+          )}
+        </div>
       </footer>
 
       {/* Win celebration modal */}
