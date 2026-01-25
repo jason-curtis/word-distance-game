@@ -294,8 +294,9 @@ export function BullseyeVisualization({
         const minSimilarity = Math.min(a.similarity, b.similarity)
         const maxSimilarity = Math.max(a.similarity, b.similarity)
 
-        // If midpoint is significantly closer than the better of the two guesses
-        if (midSimilarity > maxSimilarity + 0.02) {
+        // If midpoint is closer than the better of the two guesses
+        // Threshold of 0.01 catches meaningful combinations
+        if (midSimilarity > maxSimilarity + 0.01) {
           pairs.push({
             word1: a.word,
             word2: b.word,

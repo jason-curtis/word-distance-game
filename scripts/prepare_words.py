@@ -30,6 +30,7 @@ import os
 import sys
 import json
 import gzip
+import zipfile
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
@@ -47,8 +48,8 @@ except ImportError:
 # Configuration - Using 2024 Wikipedia GloVe embeddings
 # Available at: https://nlp.stanford.edu/projects/glove/
 # Options: 50d, 100d, 200d, 300d
-GLOVE_URL = "https://nlp.stanford.edu/data/glove.wikipedia.2024.100d.txt.gz"
-GLOVE_FILE = "glove.wikipedia.2024.100d.txt"
+GLOVE_URL = "https://nlp.stanford.edu/data/wordvecs/glove.2024.wikigiga.100d.zip"
+GLOVE_FILE = "wiki_giga_2024_100_MFT20_vectors_seed_2024_alpha_0.75_eta_0.05.050_combined.txt"
 OUTPUT_FILE = "src/data/words.json"
 TARGET_WORD_COUNT = 15000  # Aim for ~15k words after filtering
 MIN_WORD_LENGTH = 2
@@ -84,7 +85,8 @@ def download_glove(data_dir):
     data_dir.mkdir(parents=True, exist_ok=True)
 
     # Try 2024 embeddings first
-    gz_path = data_dir / "glove.wikipedia.2024.100d.txt.gz"
+    import zipfile
+    zip_path = data_dir / "glove.2024.wikigiga.100d.zip"
     txt_path = data_dir / GLOVE_FILE
 
     if txt_path.exists():
@@ -92,26 +94,25 @@ def download_glove(data_dir):
         return txt_path
 
     # Try to download 2024 Wikipedia embeddings
-    print(f"Attempting to download 2024 Wikipedia GloVe embeddings...")
+    print(f"Attempting to download 2024 Wikipedia+Gigaword GloVe embeddings...")
     try:
-        if not gz_path.exists():
+        if not zip_path.exists():
             print(f"Downloading from {GLOVE_URL}...")
-            print("This may take a while...")
+            print("This may take a while (approx 350MB)...")
 
             def progress_hook(block_num, block_size, total_size):
                 if total_size > 0:
                     downloaded = block_num * block_size
                     percent = min(100, downloaded * 100 / total_size)
-                    sys.stdout.write(f"\rProgress: {percent:.1f}%")
+                    sys.stdout.write(f"\rProgress: {percent:.1f}% ({downloaded // (1024*1024)}MB / {total_size // (1024*1024)}MB)")
                     sys.stdout.flush()
 
-            urllib.request.urlretrieve(GLOVE_URL, gz_path, progress_hook)
+            urllib.request.urlretrieve(GLOVE_URL, zip_path, progress_hook)
             print("\nDownload complete!")
 
         print(f"Extracting {GLOVE_FILE}...")
-        with gzip.open(gz_path, 'rt', encoding='utf-8') as f_in:
-            with open(txt_path, 'w', encoding='utf-8') as f_out:
-                f_out.write(f_in.read())
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extract(GLOVE_FILE, data_dir)
         print("Extraction complete!")
         return txt_path
 
