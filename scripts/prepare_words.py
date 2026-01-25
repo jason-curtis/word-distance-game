@@ -45,20 +45,14 @@ except ImportError:
     NLTK_AVAILABLE = False
     print("NLTK not available. Using simple stemming. Install with: pip install nltk")
 
-# Configuration - Using 2024 Wikipedia GloVe embeddings
+# Configuration - Using GloVe 2024 Wikipedia+Gigaword embeddings (50d)
 # Available at: https://nlp.stanford.edu/projects/glove/
-# Options: 50d, 100d, 200d, 300d
-GLOVE_URL = "https://nlp.stanford.edu/data/wordvecs/glove.2024.wikigiga.100d.zip"
-GLOVE_FILE = "wiki_giga_2024_100_MFT20_vectors_seed_2024_alpha_0.75_eta_0.05.050_combined.txt"
+GLOVE_URL = "https://nlp.stanford.edu/data/wordvecs/glove.2024.wikigiga.50d.zip"
 OUTPUT_FILE = "src/data/words.json"
 TARGET_WORD_COUNT = 15000  # Aim for ~15k words after filtering
 MIN_WORD_LENGTH = 2
 MAX_WORD_LENGTH = 15
-VECTOR_DIMENSIONS = 100
-
-# Fallback to 6B (older but reliable) if 2024 isn't available
-GLOVE_FALLBACK_URL = "https://nlp.stanford.edu/data/glove.6B.zip"
-GLOVE_FALLBACK_FILE = "glove.6B.100d.txt"
+VECTOR_DIMENSIONS = 50
 
 # Words to exclude (profanity, slurs, very obscure terms)
 EXCLUDE_WORDS = {
@@ -79,75 +73,79 @@ def simple_stem(word):
     return word
 
 
+def edit_distance(s1, s2):
+    """Compute Levenshtein edit distance between two strings."""
+    if len(s1) < len(s2):
+        return edit_distance(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+
+    prev_row = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        curr_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = prev_row[j + 1] + 1
+            deletions = curr_row[j] + 1
+            substitutions = prev_row[j] + (c1 != c2)
+            curr_row.append(min(insertions, deletions, substitutions))
+        prev_row = curr_row
+    return prev_row[-1]
+
+
+def cosine_similarity(v1, v2):
+    """Compute cosine similarity between two vectors."""
+    dot = sum(a * b for a, b in zip(v1, v2))
+    norm1 = sum(a * a for a in v1) ** 0.5
+    norm2 = sum(b * b for b in v2) ** 0.5
+    if norm1 == 0 or norm2 == 0:
+        return 0
+    return dot / (norm1 * norm2)
+
+
 def download_glove(data_dir):
     """Download GloVe embeddings if not already present."""
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    # Try 2024 embeddings first
     import zipfile
-    zip_path = data_dir / "glove.2024.wikigiga.100d.zip"
-    txt_path = data_dir / GLOVE_FILE
 
-    if txt_path.exists():
-        print(f"GloVe file already exists: {txt_path}")
-        return txt_path
+    # Derive zip filename from URL
+    zip_name = GLOVE_URL.split('/')[-1]
+    zip_path = data_dir / zip_name
 
-    # Try to download 2024 Wikipedia embeddings
-    print(f"Attempting to download 2024 Wikipedia+Gigaword GloVe embeddings...")
-    try:
-        if not zip_path.exists():
-            print(f"Downloading from {GLOVE_URL}...")
-            print("This may take a while (approx 350MB)...")
+    # Download if needed
+    if not zip_path.exists():
+        print(f"Downloading from {GLOVE_URL}...")
 
-            def progress_hook(block_num, block_size, total_size):
-                if total_size > 0:
-                    downloaded = block_num * block_size
-                    percent = min(100, downloaded * 100 / total_size)
-                    sys.stdout.write(f"\rProgress: {percent:.1f}% ({downloaded // (1024*1024)}MB / {total_size // (1024*1024)}MB)")
-                    sys.stdout.flush()
-
-            urllib.request.urlretrieve(GLOVE_URL, zip_path, progress_hook)
-            print("\nDownload complete!")
-
-        print(f"Extracting {GLOVE_FILE}...")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extract(GLOVE_FILE, data_dir)
-        print("Extraction complete!")
-        return txt_path
-
-    except Exception as e:
-        print(f"\nFailed to download 2024 embeddings: {e}")
-        print("Falling back to GloVe 6B (2014 Wikipedia + Gigaword)...")
-
-        # Fallback to older embeddings
-        import zipfile
-        zip_path = data_dir / "glove.6B.zip"
-        fallback_txt_path = data_dir / GLOVE_FALLBACK_FILE
-
-        if fallback_txt_path.exists():
-            print(f"Fallback file already exists: {fallback_txt_path}")
-            return fallback_txt_path
-
-        if not zip_path.exists():
-            print(f"Downloading from {GLOVE_FALLBACK_URL}...")
-            print("This may take a while (862MB)...")
-
-            def progress_hook(block_num, block_size, total_size):
+        def progress_hook(block_num, block_size, total_size):
+            if total_size > 0:
                 downloaded = block_num * block_size
                 percent = min(100, downloaded * 100 / total_size)
                 sys.stdout.write(f"\rProgress: {percent:.1f}% ({downloaded // (1024*1024)}MB / {total_size // (1024*1024)}MB)")
                 sys.stdout.flush()
 
-            urllib.request.urlretrieve(GLOVE_FALLBACK_URL, zip_path, progress_hook)
-            print("\nDownload complete!")
+        urllib.request.urlretrieve(GLOVE_URL, zip_path, progress_hook)
+        print("\nDownload complete!")
 
-        print(f"Extracting {GLOVE_FALLBACK_FILE}...")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extract(GLOVE_FALLBACK_FILE, data_dir)
+    # Find and extract the txt file from the zip
+    print(f"Opening {zip_path}...")
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        # List contents and find the txt file
+        txt_files = [f for f in zip_ref.namelist() if f.endswith('.txt')]
+        if not txt_files:
+            raise ValueError(f"No .txt file found in {zip_path}")
 
-        print("Extraction complete!")
-        return fallback_txt_path
+        txt_name = txt_files[0]
+        txt_path = data_dir / txt_name
+
+        if not txt_path.exists():
+            print(f"Extracting {txt_name}...")
+            zip_ref.extract(txt_name, data_dir)
+            print("Extraction complete!")
+        else:
+            print(f"Already extracted: {txt_path}")
+
+    return txt_path
 
 
 def is_valid_word(word):
@@ -201,10 +199,9 @@ def load_glove_embeddings(glove_path, max_words=None):
 
 def deduplicate_by_stem(embeddings):
     """
-    Group words by their stem and select a canonical representative.
+    DEPRECATED: Use deduplicate_by_similarity instead.
 
-    Strategy: For each stem group, select the shortest word (usually the root form).
-    If tied, prefer words that appear earlier in GloVe (more common).
+    Group words by their stem and select a canonical representative.
     """
     print("Deduplicating words by stem...")
 
@@ -239,6 +236,122 @@ def deduplicate_by_stem(embeddings):
             removed = [w for w in words if w != selected][:5]
             print(f"  Kept '{selected}', removed: {removed}")
             examples_shown += 1
+
+    return canonical_words
+
+
+def deduplicate_by_similarity(embeddings, spelling_threshold=2, semantic_threshold=0.85):
+    """
+    Merge words that are similar in BOTH spelling AND meaning.
+
+    This is smarter than stem-based deduplication because:
+    - It catches variants like singer/singers (similar spelling + meaning)
+    - It won't merge words that share stems but diverged in meaning
+    - It handles typos and variant spellings
+
+    Args:
+        embeddings: dict of word -> vector
+        spelling_threshold: max edit distance to consider words "similar spelling"
+        semantic_threshold: min cosine similarity to consider words "similar meaning"
+    """
+    print(f"Deduplicating by spelling+meaning similarity...")
+    print(f"  Spelling threshold: edit distance <= {spelling_threshold}")
+    print(f"  Semantic threshold: cosine similarity >= {semantic_threshold}")
+
+    words = list(embeddings.keys())
+    vectors = [embeddings[w] for w in words]
+    n = len(words)
+
+    # Track which words to merge (using Union-Find)
+    parent = list(range(n))
+
+    def find(x):
+        if parent[x] != x:
+            parent[x] = find(parent[x])
+        return parent[x]
+
+    def union(x, y):
+        px, py = find(x), find(y)
+        if px != py:
+            parent[px] = py
+
+    # Build index of words by first 2 characters for faster lookup
+    prefix_index = defaultdict(list)
+    for i, word in enumerate(words):
+        if len(word) >= 2:
+            prefix_index[word[:2]].append(i)
+            # Also add with first char swapped (catches typos)
+            if len(word) >= 1:
+                prefix_index[word[:1]].append(i)
+
+    # Find similar pairs
+    merge_count = 0
+    checked = 0
+
+    for i in range(n):
+        word1 = words[i]
+        vec1 = vectors[i]
+
+        # Only check words with similar prefixes (optimization)
+        candidates = set()
+        if len(word1) >= 2:
+            candidates.update(prefix_index.get(word1[:2], []))
+        if len(word1) >= 1:
+            candidates.update(prefix_index.get(word1[:1], []))
+
+        for j in candidates:
+            if j <= i:
+                continue
+
+            word2 = words[j]
+
+            # Quick length check - edit distance can't be small if lengths differ a lot
+            if abs(len(word1) - len(word2)) > spelling_threshold:
+                continue
+
+            checked += 1
+
+            # Check spelling similarity first (faster)
+            edit_dist = edit_distance(word1, word2)
+            if edit_dist > spelling_threshold:
+                continue
+
+            # Check semantic similarity
+            sim = cosine_similarity(vec1, vectors[j])
+            if sim >= semantic_threshold:
+                union(i, j)
+                merge_count += 1
+
+        if (i + 1) % 5000 == 0:
+            print(f"  Processed {i + 1:,}/{n:,} words, found {merge_count:,} merges...")
+
+    print(f"  Checked {checked:,} candidate pairs, found {merge_count:,} merges")
+
+    # Group words by their root
+    groups = defaultdict(list)
+    for i in range(n):
+        root = find(i)
+        groups[root].append(i)
+
+    # Select canonical word from each group (shortest, then alphabetically first)
+    canonical_words = {}
+    examples = []
+
+    for root, indices in groups.items():
+        group_words = [words[i] for i in indices]
+        group_words.sort(key=lambda w: (len(w), w))
+        canonical = group_words[0]
+        canonical_words[canonical] = embeddings[canonical]
+
+        if len(group_words) > 1 and len(examples) < 10:
+            examples.append((canonical, group_words[1:]))
+
+    print(f"Reduced from {len(embeddings):,} to {len(canonical_words):,} words")
+
+    if examples:
+        print("\nMerge examples:")
+        for kept, removed in examples[:5]:
+            print(f"  Kept '{kept}', merged: {removed[:5]}")
 
     return canonical_words
 
@@ -356,8 +469,9 @@ def main():
     # Step 2: Load embeddings
     embeddings = load_glove_embeddings(glove_path)
 
-    # Step 3: Deduplicate by stem
-    embeddings = deduplicate_by_stem(embeddings)
+    # Step 3: Deduplicate by spelling+meaning similarity
+    # This merges words like singer/singers that are similar in both form and meaning
+    embeddings = deduplicate_by_similarity(embeddings, spelling_threshold=2, semantic_threshold=0.85)
 
     # Step 4: Select top words
     embeddings = select_top_words(embeddings, TARGET_WORD_COUNT)
