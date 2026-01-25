@@ -9,8 +9,10 @@ import {
   loadGameState
 } from '../utils/gameLogic'
 
-// Sample word data - this will be replaced with actual processed GloVe data
-import wordData from '../data/words.json'
+interface WordData {
+  words: string[]
+  vectors: number[][]
+}
 
 interface UseGameReturn {
   targetWord: string
@@ -23,27 +25,68 @@ interface UseGameReturn {
   isValidWord: (word: string) => boolean
   getHint: () => string | null
   wordVectors: { words: string[]; vectors: number[][] }
+  isLoading: boolean
+  loadingProgress: string
 }
 
 export function useGame(): UseGameReturn {
   const [guesses, setGuesses] = useState<GuessResult[]>([])
   const [gameWon, setGameWon] = useState(false)
+  const [wordData, setWordData] = useState<WordData | null>(null)
+  const [loadingProgress, setLoadingProgress] = useState('Loading embeddings...')
 
   const today = new Date()
   const gameNumber = getGameNumber(today)
   const dateStr = today.toISOString().split('T')[0]
 
+  // Load word data asynchronously
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadWordData() {
+      setLoadingProgress('Loading word embeddings...')
+
+      try {
+        // Dynamic import - Vite will code-split this
+        const data = await import('../data/words.json')
+
+        if (!cancelled) {
+          setLoadingProgress('Processing...')
+          // Small delay to show processing state
+          await new Promise(resolve => setTimeout(resolve, 50))
+          setWordData({
+            words: data.words as string[],
+            vectors: data.vectors as number[][]
+          })
+        }
+      } catch (error) {
+        console.error('Failed to load word data:', error)
+        setLoadingProgress('Failed to load embeddings')
+      }
+    }
+
+    loadWordData()
+    return () => { cancelled = true }
+  }, [])
+
   // Get words and vectors from the loaded data
-  const words = wordData.words as string[]
-  const vectors = wordData.vectors as number[][]
+  const words = wordData?.words ?? []
+  const vectors = wordData?.vectors ?? []
   const totalWords = words.length
 
   // Get today's target word
-  const targetIndex = getDailyWordIndex(words, today)
-  const targetWord = words[targetIndex]
+  const targetIndex = useMemo(() => {
+    if (words.length === 0) return 0
+    return getDailyWordIndex(words, today)
+  }, [words, today])
+
+  const targetWord = words[targetIndex] ?? ''
 
   // Compute rankings (memoized)
   const rankings = useMemo(() => {
+    if (words.length === 0 || vectors.length === 0) {
+      return new Map<string, { similarity: number; rank: number }>()
+    }
     return computeRankings(targetIndex, vectors, words)
   }, [targetIndex, vectors, words])
 
@@ -131,6 +174,8 @@ export function useGame(): UseGameReturn {
     return null
   }, [guesses, rankings, targetWord, gameWon])
 
+  const isLoading = wordData === null
+
   return {
     targetWord,
     guesses,
@@ -141,6 +186,8 @@ export function useGame(): UseGameReturn {
     rankings,
     isValidWord,
     getHint,
-    wordVectors: { words, vectors }
+    wordVectors: { words, vectors },
+    isLoading,
+    loadingProgress
   }
 }

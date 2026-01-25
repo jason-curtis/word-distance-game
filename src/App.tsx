@@ -18,7 +18,9 @@ function Game() {
     makeGuess,
     rankings,
     targetWord,
-    wordVectors
+    wordVectors,
+    isLoading,
+    loadingProgress
   } = useGame()
 
   const [showCelebration, setShowCelebration] = useState(false)
@@ -138,6 +140,25 @@ function Game() {
     return result
   }
 
+  const handleNewGame = () => {
+    localStorage.clear()
+    window.location.reload()
+  }
+
+  // Show loading screen while embeddings load
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-game-bg flex flex-col items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-white mb-2">Loading Game</h2>
+          <p className="text-gray-400">{loadingProgress}</p>
+          <p className="text-gray-500 text-sm mt-2">First load may take a few seconds...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-game-bg flex flex-col">
       <Header gameNumber={gameNumber} />
@@ -208,7 +229,13 @@ function Game() {
 
       {/* Footer */}
       <footer className="border-t border-gray-800 py-4 text-center text-gray-500 text-sm">
-        <p>A semantic word guessing game powered by word embeddings</p>
+        <p className="mb-2">A semantic word guessing game powered by word embeddings</p>
+        <button
+          onClick={handleNewGame}
+          className="text-xs text-gray-600 hover:text-gray-400 underline"
+        >
+          New random word
+        </button>
       </footer>
 
       {/* Win celebration modal */}
