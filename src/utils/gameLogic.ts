@@ -59,9 +59,16 @@ export function processGuess(
   word: string,
   rankings: Map<string, { similarity: number; rank: number }>,
   targetWord: string,
-  guessNumber: number
+  guessNumber: number,
+  variants?: Record<string, string>
 ): GuessResult | null {
-  const normalizedWord = word.toLowerCase().trim()
+  let normalizedWord = word.toLowerCase().trim()
+
+  // Check if this is a variant that maps to a canonical word
+  if (variants && normalizedWord in variants) {
+    normalizedWord = variants[normalizedWord]
+  }
+
   const result = rankings.get(normalizedWord)
 
   if (!result) {

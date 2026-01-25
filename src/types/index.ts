@@ -23,6 +23,7 @@ export interface WordEmbeddings {
   words: string[]
   vectors: number[][]
   dimensions: number
+  variants?: Record<string, string>  // Map from variant -> canonical word
 }
 
 export interface VisualizationPoint {
