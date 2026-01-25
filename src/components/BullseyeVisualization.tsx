@@ -290,8 +290,7 @@ export function BullseyeVisualization({
         const midpoint = vectorMidpoint(a.vector, b.vector)
         const midSimilarity = cosineSimilarity(midpoint, targetVector)
 
-        // Check if midpoint is better than both guesses
-        const minSimilarity = Math.min(a.similarity, b.similarity)
+        // Check if midpoint is better than the best guess
         const maxSimilarity = Math.max(a.similarity, b.similarity)
 
         // If midpoint is closer than the better of the two guesses
