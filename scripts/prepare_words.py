@@ -35,6 +35,7 @@ import urllib.request
 from collections import defaultdict
 from pathlib import Path
 import re
+from tqdm import tqdm
 
 # Try to import nltk for stemming, fall back to simple stemming if not available
 try:
@@ -244,15 +245,8 @@ def deduplicate_by_similarity(embeddings, spelling_threshold=2, semantic_thresho
     """
     Merge words that are similar in BOTH spelling AND meaning.
 
-    This is smarter than stem-based deduplication because:
-    - It catches variants like singer/singers (similar spelling + meaning)
-    - It won't merge words that share stems but diverged in meaning
-    - It handles typos and variant spellings
-
-    Args:
-        embeddings: dict of word -> vector
-        spelling_threshold: max edit distance to consider words "similar spelling"
-        semantic_threshold: min cosine similarity to consider words "similar meaning"
+    Uses n-gram blocking for efficient candidate generation - only compares
+    words that share character bigrams, which is required for low edit distance.
     """
     print(f"Deduplicating by spelling+meaning similarity...")
     print(f"  Spelling threshold: edit distance <= {spelling_threshold}")
@@ -275,43 +269,62 @@ def deduplicate_by_similarity(embeddings, spelling_threshold=2, semantic_thresho
         if px != py:
             parent[px] = py
 
-    # Build index of words by first 2 characters for faster lookup
-    prefix_index = defaultdict(list)
-    for i, word in enumerate(words):
-        if len(word) >= 2:
-            prefix_index[word[:2]].append(i)
-            # Also add with first char swapped (catches typos)
-            if len(word) >= 1:
-                prefix_index[word[:1]].append(i)
+    # Build bigram index - words with edit distance ≤ 2 must share bigrams
+    print("  Building bigram index...")
+    bigram_index = defaultdict(set)
+    word_bigrams = {}
 
-    # Find similar pairs
+    for i, word in enumerate(words):
+        # Get all character bigrams (including start/end markers)
+        padded = f"^{word}$"
+        bigrams = {padded[j:j+2] for j in range(len(padded) - 1)}
+        word_bigrams[i] = bigrams
+        for bg in bigrams:
+            bigram_index[bg].add(i)
+
+    # Find similar pairs using bigram blocking
     merge_count = 0
     checked = 0
+    seen_pairs = set()
 
-    for i in range(n):
+    for i in tqdm(range(n), desc="  Deduplicating", unit="words"):
         word1 = words[i]
         vec1 = vectors[i]
+        len1 = len(word1)
+        bg1 = word_bigrams[i]
 
-        # Only check words with similar prefixes (optimization)
+        # Get candidates: words sharing at least one bigram
+        # (words with edit dist ≤ 2 must share at least len-3 bigrams for len > 3)
         candidates = set()
-        if len(word1) >= 2:
-            candidates.update(prefix_index.get(word1[:2], []))
-        if len(word1) >= 1:
-            candidates.update(prefix_index.get(word1[:1], []))
+        for bg in bg1:
+            candidates.update(bigram_index[bg])
 
         for j in candidates:
             if j <= i:
                 continue
 
+            # Skip if already checked
+            pair = (i, j) if i < j else (j, i)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+
             word2 = words[j]
 
-            # Quick length check - edit distance can't be small if lengths differ a lot
-            if abs(len(word1) - len(word2)) > spelling_threshold:
+            # Quick length filter
+            if abs(len1 - len(word2)) > spelling_threshold:
+                continue
+
+            # Bigram overlap filter - need sufficient overlap for low edit distance
+            bg2 = word_bigrams[j]
+            overlap = len(bg1 & bg2)
+            min_required = max(1, min(len(bg1), len(bg2)) - spelling_threshold - 1)
+            if overlap < min_required:
                 continue
 
             checked += 1
 
-            # Check spelling similarity first (faster)
+            # Check spelling similarity
             edit_dist = edit_distance(word1, word2)
             if edit_dist > spelling_threshold:
                 continue
@@ -321,9 +334,6 @@ def deduplicate_by_similarity(embeddings, spelling_threshold=2, semantic_thresho
             if sim >= semantic_threshold:
                 union(i, j)
                 merge_count += 1
-
-        if (i + 1) % 5000 == 0:
-            print(f"  Processed {i + 1:,}/{n:,} words, found {merge_count:,} merges...")
 
     print(f"  Checked {checked:,} candidate pairs, found {merge_count:,} merges")
 
@@ -466,26 +476,29 @@ def main():
     # Step 1: Download GloVe
     glove_path = download_glove(data_dir)
 
-    # Step 2: Load embeddings
-    embeddings = load_glove_embeddings(glove_path)
+    # Step 2: Load embeddings - only keep top 100k (GloVe is ~frequency sorted)
+    # This makes deduplication fast since we're working with 100k not 1M words
+    embeddings = load_glove_embeddings(glove_path, max_words=150000)
 
-    # Step 3: Deduplicate by spelling+meaning similarity
-    # This merges words like singer/singers that are similar in both form and meaning
-    embeddings = deduplicate_by_similarity(embeddings, spelling_threshold=2, semantic_threshold=0.85)
+    # Step 3: Select top words FIRST to reduce deduplication work
+    embeddings = select_top_words(embeddings, TARGET_WORD_COUNT * 3)  # 45k words
 
-    # Step 4: Select top words
+    # Step 4: Deduplicate by stem (fast O(n) approach)
+    embeddings = deduplicate_by_stem(embeddings)
+
+    # Step 5: Trim to final target count
     embeddings = select_top_words(embeddings, TARGET_WORD_COUNT)
 
-    # Step 5: Normalize vectors
+    # Step 6: Normalize vectors
     embeddings = normalize_vectors(embeddings)
 
-    # Step 6: Reduce precision for smaller file size
+    # Step 7: Reduce precision for smaller file size
     embeddings = reduce_precision(embeddings, decimal_places=4)
 
-    # Step 7: Save to JSON
+    # Step 8: Save to JSON
     save_to_json(embeddings, output_path)
 
-    # Step 8: Verify
+    # Step 9: Verify
     verify_output(output_path)
 
     print("\n" + "=" * 60)
