@@ -8,12 +8,5 @@ dependencies = [
     "tqdm>=4.65",
 ]
 
-[project.scripts]
-prepare-words = "scripts.prepare_words:main"
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.uv]
-dev-dependencies = []
+[dependency-groups]
+dev = []

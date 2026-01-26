@@ -37,30 +37,23 @@ from pathlib import Path
 import re
 from tqdm import tqdm
 
-# Try to import nltk for word validation and lemmatization
+# Import nltk for word validation and lemmatization
+from nltk.stem import PorterStemmer, WordNetLemmatizer
+from nltk.corpus import words as nltk_words
+import nltk
+
+# Download required NLTK data if not present
 try:
-    from nltk.stem import PorterStemmer, WordNetLemmatizer
-    from nltk.corpus import words as nltk_words
-    import nltk
-    NLTK_AVAILABLE = True
+    nltk.data.find('corpora/words.zip')
+except LookupError:
+    print("Downloading NLTK words corpus...")
+    nltk.download('words', quiet=True)
 
-    # Download required NLTK data if not present
-    try:
-        nltk.data.find('corpora/words.zip')
-    except LookupError:
-        print("Downloading NLTK words corpus...")
-        nltk.download('words', quiet=True)
-
-    try:
-        nltk.data.find('corpora/wordnet.zip')
-    except LookupError:
-        print("Downloading NLTK wordnet...")
-        nltk.download('wordnet', quiet=True)
-
-except ImportError:
-    NLTK_AVAILABLE = False
-    print("NLTK not available. Install with: pip install nltk")
-    print("Warning: Without NLTK, word filtering will be less effective")
+try:
+    nltk.data.find('corpora/wordnet.zip')
+except LookupError:
+    print("Downloading NLTK wordnet...")
+    nltk.download('wordnet', quiet=True)
 
 # Configuration - Using GloVe 2024 Wikipedia+Gigaword embeddings (50d)
 # Available at: https://nlp.stanford.edu/projects/glove/
@@ -76,19 +69,6 @@ EXCLUDE_WORDS = {
     # Add any words you want to exclude here
     'xxx', 'etc'
 }
-
-# Common word suffixes for simple stemming fallback
-COMMON_SUFFIXES = ['ing', 'ed', 'er', 'est', 'ly', 's', 'es', 'ment', 'ness', 'tion', 'sion']
-
-
-def simple_stem(word):
-    """Simple stemming fallback when NLTK is not available."""
-    word = word.lower()
-    for suffix in sorted(COMMON_SUFFIXES, key=len, reverse=True):
-        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
-            return word[:-len(suffix)]
-    return word
-
 
 def edit_distance(s1, s2):
     """Compute Levenshtein edit distance between two strings."""
@@ -231,10 +211,6 @@ def create_word_variants_mapping(embeddings):
     variants = {}
     word_set = set(embeddings.keys())
 
-    if not NLTK_AVAILABLE:
-        print("  Skipping variant mapping (NLTK not available)")
-        return variants
-
     stemmer = PorterStemmer()
     lemmatizer = WordNetLemmatizer()
 
@@ -299,11 +275,8 @@ def deduplicate_by_stem(embeddings):
     """
     print("Deduplicating words by stem...")
 
-    if NLTK_AVAILABLE:
-        stemmer = PorterStemmer()
-        stem_func = stemmer.stem
-    else:
-        stem_func = simple_stem
+    stemmer = PorterStemmer()
+    stem_func = stemmer.stem
 
     # Group words by stem
     stem_groups = defaultdict(list)
@@ -334,7 +307,7 @@ def deduplicate_by_stem(embeddings):
     return canonical_words
 
 
-def smart_deduplicate(embeddings, valid_words_set=None):
+def smart_deduplicate(embeddings, valid_words_set):
     """
     Smart deduplication that keeps common word forms but removes obscure variants.
 
@@ -345,10 +318,6 @@ def smart_deduplicate(embeddings, valid_words_set=None):
     4. Prefer keeping multiple forms over aggressive stemming
     """
     print("Smart deduplication - keeping common word forms...")
-
-    if not NLTK_AVAILABLE or not valid_words_set:
-        print("  Using basic deduplication (NLTK not available)")
-        return deduplicate_by_similarity(embeddings)
 
     # First, remove any words that aren't in the dictionary
     filtered = {w: v for w, v in embeddings.items() if w in valid_words_set}
@@ -599,16 +568,10 @@ def main():
     output_path = project_dir / OUTPUT_FILE
 
     # Step 0: Load valid English words dictionary
-    valid_words_set = None
-    if NLTK_AVAILABLE:
-        print("\nLoading English dictionary...")
-        try:
-            word_list = nltk_words.words()
-            valid_words_set = {w.lower() for w in word_list if re.match(r'^[a-z]+$', w.lower())}
-            print(f"  Loaded {len(valid_words_set):,} valid English words")
-        except Exception as e:
-            print(f"  Warning: Could not load NLTK words: {e}")
-            valid_words_set = None
+    print("\nLoading English dictionary...")
+    word_list = nltk_words.words()
+    valid_words_set = {w.lower() for w in word_list if re.match(r'^[a-z]+$', w.lower())}
+    print(f"  Loaded {len(valid_words_set):,} valid English words")
 
     # Step 1: Download GloVe
     glove_path = download_glove(data_dir)
