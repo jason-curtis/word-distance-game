@@ -12,6 +12,7 @@ import {
 interface WordData {
   words: string[]
   vectors: number[][]
+  variants?: Record<string, string>
 }
 
 interface UseGameReturn {
@@ -57,7 +58,8 @@ export function useGame(): UseGameReturn {
           await new Promise(resolve => setTimeout(resolve, 50))
           setWordData({
             words: data.words as string[],
-            vectors: data.vectors as number[][]
+            vectors: data.vectors as number[][],
+            variants: data.variants as Record<string, string> | undefined
           })
         }
       } catch (error) {
@@ -70,9 +72,10 @@ export function useGame(): UseGameReturn {
     return () => { cancelled = true }
   }, [])
 
-  // Get words and vectors from the loaded data
+  // Get words, vectors, and variants from the loaded data
   const words = wordData?.words ?? []
   const vectors = wordData?.vectors ?? []
+  const variants = wordData?.variants
   const totalWords = words.length
 
   // Get target word - either from random seed in localStorage or daily
@@ -123,10 +126,16 @@ export function useGame(): UseGameReturn {
     }
   }, [guesses, gameWon, targetWord, gameNumber, dateStr])
 
-  // Check if a word is valid
+  // Check if a word is valid (either in rankings or in variants)
   const isValidWord = useCallback((word: string): boolean => {
-    return rankings.has(word.toLowerCase().trim())
-  }, [rankings])
+    const normalized = word.toLowerCase().trim()
+    if (rankings.has(normalized)) return true
+    // Check if it's a variant that maps to a word in rankings
+    if (variants && normalized in variants) {
+      return rankings.has(variants[normalized])
+    }
+    return false
+  }, [rankings, variants])
 
   // Make a guess
   const makeGuess = useCallback((word: string): { success: boolean; error?: string; result?: GuessResult } => {
@@ -140,12 +149,17 @@ export function useGame(): UseGameReturn {
       return { success: false, error: 'Word not in vocabulary' }
     }
 
-    // Check if already guessed
-    if (guesses.some(g => g.word === normalizedWord)) {
+    // Resolve variant to canonical form for duplicate checking
+    const canonicalWord = (variants && normalizedWord in variants)
+      ? variants[normalizedWord]
+      : normalizedWord
+
+    // Check if already guessed (by canonical form)
+    if (guesses.some(g => g.word === canonicalWord)) {
       return { success: false, error: 'Already guessed' }
     }
 
-    const result = processGuess(normalizedWord, rankings, targetWord, guesses.length + 1)
+    const result = processGuess(normalizedWord, rankings, targetWord, guesses.length + 1, variants)
     if (!result) {
       return { success: false, error: 'Word not in vocabulary' }
     }

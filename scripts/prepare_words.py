@@ -37,14 +37,23 @@ from pathlib import Path
 import re
 from tqdm import tqdm
 
-# Try to import nltk for stemming, fall back to simple stemming if not available
+# Import nltk for word validation and lemmatization
+from nltk.stem import PorterStemmer, WordNetLemmatizer
+from nltk.corpus import words as nltk_words
+import nltk
+
+# Download required NLTK data if not present
 try:
-    from nltk.stem import PorterStemmer
-    from nltk.corpus import words as nltk_words
-    NLTK_AVAILABLE = True
-except ImportError:
-    NLTK_AVAILABLE = False
-    print("NLTK not available. Using simple stemming. Install with: pip install nltk")
+    nltk.data.find('corpora/words.zip')
+except LookupError:
+    print("Downloading NLTK words corpus...")
+    nltk.download('words', quiet=True)
+
+try:
+    nltk.data.find('corpora/wordnet.zip')
+except LookupError:
+    print("Downloading NLTK wordnet...")
+    nltk.download('wordnet', quiet=True)
 
 # Configuration - Using GloVe 2024 Wikipedia+Gigaword embeddings (50d)
 # Available at: https://nlp.stanford.edu/projects/glove/
@@ -60,19 +69,6 @@ EXCLUDE_WORDS = {
     # Add any words you want to exclude here
     'xxx', 'etc'
 }
-
-# Common word suffixes for simple stemming fallback
-COMMON_SUFFIXES = ['ing', 'ed', 'er', 'est', 'ly', 's', 'es', 'ment', 'ness', 'tion', 'sion']
-
-
-def simple_stem(word):
-    """Simple stemming fallback when NLTK is not available."""
-    word = word.lower()
-    for suffix in sorted(COMMON_SUFFIXES, key=len, reverse=True):
-        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
-            return word[:-len(suffix)]
-    return word
-
 
 def edit_distance(s1, s2):
     """Compute Levenshtein edit distance between two strings."""
@@ -149,7 +145,7 @@ def download_glove(data_dir):
     return txt_path
 
 
-def is_valid_word(word):
+def is_valid_word(word, valid_words_set=None):
     """Check if a word should be included in the game."""
     # Must be alphabetic (allow hyphens for compound words)
     if not re.match(r'^[a-z]+(-[a-z]+)?$', word):
@@ -163,10 +159,14 @@ def is_valid_word(word):
     if word in EXCLUDE_WORDS:
         return False
 
+    # If we have NLTK, validate against English word list
+    if valid_words_set and word not in valid_words_set:
+        return False
+
     return True
 
 
-def load_glove_embeddings(glove_path, max_words=None):
+def load_glove_embeddings(glove_path, max_words=None, valid_words_set=None):
     """Load GloVe embeddings from file."""
     print(f"Loading GloVe embeddings from {glove_path}...")
 
@@ -182,7 +182,7 @@ def load_glove_embeddings(glove_path, max_words=None):
 
             word = parts[0].lower()
 
-            if is_valid_word(word):
+            if is_valid_word(word, valid_words_set):
                 try:
                     vector = [float(x) for x in parts[1:]]
                     # Accept vectors of the expected dimension or close to it
@@ -198,19 +198,85 @@ def load_glove_embeddings(glove_path, max_words=None):
     return embeddings
 
 
+def create_word_variants_mapping(embeddings):
+    """
+    Create a mapping from word variants to their canonical forms in the word list.
+    This allows users to type variants that get mapped to words in the game.
+
+    For example: "rescuer" -> "rescue", "running" -> "run" (if only "rescue"/"run" exist)
+    But if both "rescuer" and "rescue" exist, no mapping is created.
+    """
+    print("Creating word variant mappings...")
+
+    variants = {}
+    word_set = set(embeddings.keys())
+
+    stemmer = PorterStemmer()
+    lemmatizer = WordNetLemmatizer()
+
+    # For each word that exists in embeddings, find related forms
+    for word in embeddings.keys():
+        # Generate potential variants using common suffixes
+        potential_variants = set()
+
+        # Plural/singular forms
+        if word.endswith('s') and len(word) > 3:
+            potential_variants.add(word[:-1])  # Remove 's'
+        if not word.endswith('s'):
+            potential_variants.add(word + 's')
+            if word.endswith('y') and len(word) > 3:
+                potential_variants.add(word[:-1] + 'ies')  # city -> cities
+            elif word.endswith(('s', 'x', 'z', 'ch', 'sh')):
+                potential_variants.add(word + 'es')
+
+        # Verb forms
+        if not word.endswith('ing'):
+            potential_variants.add(word + 'ing')
+            if word.endswith('e'):
+                potential_variants.add(word[:-1] + 'ing')  # make -> making
+
+        if not word.endswith('ed'):
+            potential_variants.add(word + 'ed')
+            if word.endswith('e'):
+                potential_variants.add(word[:-1] + 'ed')  # make -> maked (not valid but filtered later)
+            if len(word) > 3 and word[-1] not in 'aeiou' and word[-2] in 'aeiou':
+                potential_variants.add(word + word[-1] + 'ed')  # run -> runned (filtered later)
+
+        # Comparative/superlative
+        if not word.endswith('er') and len(word) > 3:
+            potential_variants.add(word + 'er')
+            if word.endswith('e'):
+                potential_variants.add(word + 'r')
+        if not word.endswith('est') and len(word) > 3:
+            potential_variants.add(word + 'est')
+
+        # Add variants that DON'T exist in word list as mappings to this word
+        for variant in potential_variants:
+            if variant not in word_set and len(variant) >= MIN_WORD_LENGTH:
+                # Only add if stem matches
+                if stemmer.stem(variant) == stemmer.stem(word):
+                    variants[variant] = word
+
+    print(f"  Created {len(variants):,} variant mappings")
+    if variants:
+        examples = list(variants.items())[:10]
+        print("  Examples:")
+        for variant, canonical in examples:
+            print(f"    {variant} -> {canonical}")
+
+    return variants
+
+
 def deduplicate_by_stem(embeddings):
     """
-    DEPRECATED: Use deduplicate_by_similarity instead.
+    DEPRECATED: Use smart_deduplicate instead which preserves common word forms.
 
     Group words by their stem and select a canonical representative.
     """
     print("Deduplicating words by stem...")
 
-    if NLTK_AVAILABLE:
-        stemmer = PorterStemmer()
-        stem_func = stemmer.stem
-    else:
-        stem_func = simple_stem
+    stemmer = PorterStemmer()
+    stem_func = stemmer.stem
 
     # Group words by stem
     stem_groups = defaultdict(list)
@@ -239,6 +305,29 @@ def deduplicate_by_stem(embeddings):
             examples_shown += 1
 
     return canonical_words
+
+
+def smart_deduplicate(embeddings, valid_words_set):
+    """
+    Smart deduplication that keeps common word forms but removes obscure variants.
+
+    Strategy:
+    1. Keep base words and their common variants (run, runs, running, runner)
+    2. Remove near-duplicates that are very close in spelling and meaning
+    3. Validate all words against dictionary to ensure they're real words
+    4. Prefer keeping multiple forms over aggressive stemming
+    """
+    print("Smart deduplication - keeping common word forms...")
+
+    # First, remove any words that aren't in the dictionary
+    filtered = {w: v for w, v in embeddings.items() if w in valid_words_set}
+    print(f"  Filtered to {len(filtered):,} dictionary words (from {len(embeddings):,})")
+
+    # Use similarity-based deduplication but with relaxed parameters
+    # Only merge words that are VERY similar in both spelling AND meaning
+    result = deduplicate_by_similarity(filtered, spelling_threshold=1, semantic_threshold=0.95)
+
+    return result
 
 
 def deduplicate_by_similarity(embeddings, spelling_threshold=2, semantic_threshold=0.85):
@@ -407,7 +496,7 @@ def reduce_precision(embeddings, decimal_places=4):
     return reduced
 
 
-def save_to_json(embeddings, output_path):
+def save_to_json(embeddings, output_path, variants=None):
     """Save embeddings to JSON format for the web app."""
     print(f"Saving to {output_path}...")
 
@@ -419,6 +508,11 @@ def save_to_json(embeddings, output_path):
         "words": words,
         "vectors": vectors
     }
+
+    # Add variant mappings if provided
+    if variants:
+        data["variants"] = variants
+        print(f"  Including {len(variants):,} word variant mappings")
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -464,7 +558,7 @@ def main():
     """Main entry point."""
     print("=" * 60)
     print("GloVe Word Embeddings Processor for Semantle Game")
-    print("Using 2024 Wikipedia embeddings")
+    print("Using 2024 Wikipedia embeddings with improved word filtering")
     print("=" * 60)
 
     # Determine paths
@@ -473,36 +567,47 @@ def main():
     data_dir = project_dir / "data" / "glove"
     output_path = project_dir / OUTPUT_FILE
 
+    # Step 0: Load valid English words dictionary
+    print("\nLoading English dictionary...")
+    word_list = nltk_words.words()
+    valid_words_set = {w.lower() for w in word_list if re.match(r'^[a-z]+$', w.lower())}
+    print(f"  Loaded {len(valid_words_set):,} valid English words")
+
     # Step 1: Download GloVe
     glove_path = download_glove(data_dir)
 
-    # Step 2: Load embeddings - only keep top 100k (GloVe is ~frequency sorted)
-    # This makes deduplication fast since we're working with 100k not 1M words
-    embeddings = load_glove_embeddings(glove_path, max_words=150000)
+    # Step 2: Load embeddings with dictionary validation
+    # Only keep top 150k (GloVe is ~frequency sorted) to make processing faster
+    embeddings = load_glove_embeddings(glove_path, max_words=150000, valid_words_set=valid_words_set)
 
     # Step 3: Select top words FIRST to reduce deduplication work
     embeddings = select_top_words(embeddings, TARGET_WORD_COUNT * 3)  # 45k words
 
-    # Step 4: Deduplicate by stem (fast O(n) approach)
-    embeddings = deduplicate_by_stem(embeddings)
+    # Step 4: Smart deduplication - keeps common forms, removes only true duplicates
+    embeddings = smart_deduplicate(embeddings, valid_words_set)
 
     # Step 5: Trim to final target count
     embeddings = select_top_words(embeddings, TARGET_WORD_COUNT)
 
-    # Step 6: Normalize vectors
+    # Step 6: Create variant mappings for words NOT in the final list
+    variants = create_word_variants_mapping(embeddings)
+
+    # Step 7: Normalize vectors
     embeddings = normalize_vectors(embeddings)
 
-    # Step 7: Reduce precision for smaller file size
+    # Step 8: Reduce precision for smaller file size
     embeddings = reduce_precision(embeddings, decimal_places=4)
 
-    # Step 8: Save to JSON
-    save_to_json(embeddings, output_path)
+    # Step 9: Save to JSON with variants
+    save_to_json(embeddings, output_path, variants)
 
-    # Step 9: Verify
+    # Step 10: Verify
     verify_output(output_path)
 
     print("\n" + "=" * 60)
     print("Processing complete!")
+    print(f"Final word list: {len(embeddings):,} words")
+    print(f"Variant mappings: {len(variants):,} words")
     print("=" * 60)
 
 
