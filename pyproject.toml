@@ -1,0 +1,19 @@
+[project]
+name = "word-distance-game"
+version = "1.0.0"
+description = "Word distance game using GloVe embeddings"
+requires-python = ">=3.8"
+dependencies = [
+    "nltk>=3.8",
+    "tqdm>=4.65",
+]
+
+[project.scripts]
+prepare-words = "scripts.prepare_words:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = []
