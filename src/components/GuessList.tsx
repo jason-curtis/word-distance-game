@@ -10,6 +10,9 @@ export function GuessList({ guesses, totalWords }: GuessListProps) {
   // Always sort by rank (best similarity first)
   const sortedGuesses = [...guesses].sort((a, b) => a.rank - b.rank)
 
+  // Get the last guess (most recent)
+  const lastGuess = guesses.length > 0 ? guesses[guesses.length - 1] : null
+
   if (guesses.length === 0) {
     return (
       <div className="text-center text-gray-500 py-8">
@@ -21,6 +24,24 @@ export function GuessList({ guesses, totalWords }: GuessListProps) {
 
   return (
     <div className="w-full max-w-md mx-auto">
+      {/* Last guess display */}
+      {lastGuess && (
+        <>
+          <div className="mb-4">
+            <div className="text-xs text-gray-500 mb-2 uppercase tracking-wide font-semibold">
+              Last Guess
+            </div>
+            <GuessRow
+              guess={lastGuess}
+              totalWords={totalWords}
+            />
+          </div>
+
+          {/* Visual divider */}
+          <div className="mb-6 border-t-2 border-gray-700" />
+        </>
+      )}
+
       {/* Guess list */}
       <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
         {sortedGuesses.map((guess) => (
