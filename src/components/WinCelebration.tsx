@@ -8,9 +8,10 @@ interface WinCelebrationProps {
   gameNumber: number
   targetWord: string
   onClose: () => void
+  randomWordSeed?: string | null
 }
 
-export function WinCelebration({ guesses, gameNumber, targetWord, onClose }: WinCelebrationProps) {
+export function WinCelebration({ guesses, gameNumber, targetWord, onClose, randomWordSeed }: WinCelebrationProps) {
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -60,7 +61,7 @@ export function WinCelebration({ guesses, gameNumber, targetWord, onClose }: Win
     try {
       if (navigator.share) {
         await navigator.share({
-          title: `Guesstalt #${gameNumber}`,
+          title: `Guesstalt #${gameNumber}${randomWordSeed ? ` R${randomWordSeed}` : ''}`,
           text: shareText
         })
       } else {
@@ -118,7 +119,7 @@ export function WinCelebration({ guesses, gameNumber, targetWord, onClose }: Win
         </div>
 
         <p className="mt-6 text-gray-500 text-sm">
-          Guesstalt #{gameNumber} • Come back tomorrow for a new word!
+          Guesstalt #{gameNumber}{randomWordSeed && ` R${randomWordSeed}`} • {randomWordSeed ? 'Play another random word anytime!' : 'Come back tomorrow for a new word!'}
         </p>
       </div>
     </div>

@@ -279,6 +279,7 @@ function Game() {
           gameNumber={gameNumber}
           targetWord={targetWord}
           onClose={() => setShowCelebration(false)}
+          randomWordSeed={randomWordSeed}
         />
       )}
     </div>
