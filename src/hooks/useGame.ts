@@ -28,6 +28,7 @@ interface UseGameReturn {
   isLoading: boolean
   loadingProgress: string
   isRandomMode: boolean
+  randomWordSeed: string | null
 }
 
 export function useGame(): UseGameReturn {
@@ -90,7 +91,8 @@ export function useGame(): UseGameReturn {
   }, [words, today])
 
   const targetWord = words[targetIndex] ?? ''
-  const isRandomMode = !!localStorage.getItem('randomWordSeed')
+  const randomWordSeed = localStorage.getItem('randomWordSeed')
+  const isRandomMode = !!randomWordSeed
 
   // Compute rankings (memoized)
   const rankings = useMemo(() => {
@@ -199,6 +201,7 @@ export function useGame(): UseGameReturn {
     wordVectors: { words, vectors },
     isLoading,
     loadingProgress,
-    isRandomMode
+    isRandomMode,
+    randomWordSeed
   }
 }

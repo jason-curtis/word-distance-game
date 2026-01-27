@@ -2,9 +2,10 @@ import { useState } from 'react'
 
 interface HeaderProps {
   gameNumber: number
+  randomWordSeed: string | null
 }
 
-export function Header({ gameNumber }: HeaderProps) {
+export function Header({ gameNumber, randomWordSeed }: HeaderProps) {
   const [showHelp, setShowHelp] = useState(false)
 
   return (
@@ -14,7 +15,7 @@ export function Header({ gameNumber }: HeaderProps) {
           <h1 className="text-2xl font-bold text-white tracking-tight">
             Semantle
             <span className="text-gray-500 text-sm ml-2 font-normal">
-              #{gameNumber}
+              #{gameNumber}{randomWordSeed && ` R${randomWordSeed}`}
             </span>
           </h1>
 

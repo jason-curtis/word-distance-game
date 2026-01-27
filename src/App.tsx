@@ -21,7 +21,8 @@ function Game() {
     wordVectors,
     isLoading,
     loadingProgress,
-    isRandomMode
+    isRandomMode,
+    randomWordSeed
   } = useGame()
 
   const [showCelebration, setShowCelebration] = useState(false)
@@ -172,7 +173,7 @@ function Game() {
 
   return (
     <div className="min-h-screen bg-game-bg flex flex-col">
-      <Header gameNumber={gameNumber} />
+      <Header gameNumber={gameNumber} randomWordSeed={randomWordSeed} />
 
       <main className="flex-1 px-4 py-6 max-w-4xl mx-auto w-full">
         {/* Game status */}
