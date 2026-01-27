@@ -8,9 +8,10 @@ interface WinCelebrationProps {
   gameNumber: number
   targetWord: string
   onClose: () => void
+  isRandomMode?: boolean
 }
 
-export function WinCelebration({ guesses, gameNumber, targetWord, onClose }: WinCelebrationProps) {
+export function WinCelebration({ guesses, gameNumber, targetWord, onClose, isRandomMode = false }: WinCelebrationProps) {
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -49,18 +50,26 @@ export function WinCelebration({ guesses, gameNumber, targetWord, onClose }: Win
   }, [])
 
   const handleShare = async () => {
-    const shareText = generateShareText({
-      targetWord,
-      guesses,
-      gameWon: true,
-      gameNumber,
-      date: new Date().toISOString().split('T')[0]
-    })
+    const shareText = isRandomMode
+      ? generateShareText({
+          targetWord,
+          guesses,
+          gameWon: true,
+          gameNumber: 0, // Use 0 for random mode to indicate no game number
+          date: new Date().toISOString().split('T')[0]
+        }).replace(/🎯 Semantle #0/, '🎯 Random Semantle')
+      : generateShareText({
+          targetWord,
+          guesses,
+          gameWon: true,
+          gameNumber,
+          date: new Date().toISOString().split('T')[0]
+        })
 
     try {
       if (navigator.share) {
         await navigator.share({
-          title: `Semantle #${gameNumber}`,
+          title: isRandomMode ? 'Random Semantle' : `Semantle #${gameNumber}`,
           text: shareText
         })
       } else {
@@ -118,7 +127,10 @@ export function WinCelebration({ guesses, gameNumber, targetWord, onClose }: Win
         </div>
 
         <p className="mt-6 text-gray-500 text-sm">
-          Semantle #{gameNumber} • Come back tomorrow for a new word!
+          {isRandomMode
+            ? 'Random Word • Play another random word anytime!'
+            : `Semantle #${gameNumber} • Come back tomorrow for a new word!`
+          }
         </p>
       </div>
     </div>
