@@ -138,6 +138,10 @@ export function useGame(): UseGameReturn {
       return { success: false, error: 'Please enter a word' }
     }
 
+    if (normalizedWord.length < 3) {
+      return { success: false, error: 'Word must be at least 3 characters' }
+    }
+
     if (!isValidWord(normalizedWord)) {
       return { success: false, error: 'Word not in vocabulary' }
     }
