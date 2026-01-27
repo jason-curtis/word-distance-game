@@ -11,7 +11,8 @@ export function GuessInput({ onGuess, disabled = false, onCheatCode }: GuessInpu
   const [error, setError] = useState<string | null>(null)
   const [shake, setShake] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const cheatProgressRef = useRef(0) // Tracks progress: 0-5 for typing "cheat", 6-10 for backspacing
+  const longPressTimerRef = useRef<number | null>(null)
+  const longPressStartTimeRef = useRef<number>(0)
 
   useEffect(() => {
     if (!disabled) {
@@ -19,43 +20,49 @@ export function GuessInput({ onGuess, disabled = false, onCheatCode }: GuessInpu
     }
   }, [disabled])
 
-  // Track cheat code pattern: type "cheat" then backspace 5 times
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    const cheatSequence = 'cheat'
-
-    if (e.key === 'Backspace') {
-      // If we've typed "cheat" completely (progress = 5), start counting backspaces
-      if (cheatProgressRef.current === 5) {
-        cheatProgressRef.current = 6
-      } else if (cheatProgressRef.current >= 6 && cheatProgressRef.current < 10) {
-        cheatProgressRef.current++
-
-        // If we've backspaced all 5 characters
-        if (cheatProgressRef.current === 10 && input.length === 1) {
-          // Trigger cheat code!
-          if (onCheatCode) {
-            onCheatCode()
-          }
-          cheatProgressRef.current = 0
+  // Long-press detection for cheat code (3 seconds)
+  const handleTouchStart = () => {
+    longPressStartTimeRef.current = Date.now()
+    longPressTimerRef.current = window.setTimeout(() => {
+      if (onCheatCode) {
+        // Trigger haptic feedback if available
+        if ('vibrate' in navigator) {
+          navigator.vibrate(100)
         }
-      } else {
-        // Reset if backspacing at wrong time
-        cheatProgressRef.current = 0
+        onCheatCode()
       }
-    } else if (e.key.length === 1 && e.key.match(/[a-z]/i)) {
-      // Track typing "cheat"
-      const expectedChar = cheatSequence[cheatProgressRef.current]
-      if (e.key.toLowerCase() === expectedChar) {
-        cheatProgressRef.current++
-        if (cheatProgressRef.current > 5) {
-          cheatProgressRef.current = 0 // Went past "cheat"
-        }
-      } else {
-        // Wrong character, reset
-        cheatProgressRef.current = e.key.toLowerCase() === cheatSequence[0] ? 1 : 0
-      }
+      longPressTimerRef.current = null
+    }, 3000)
+  }
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current !== null) {
+      clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
     }
   }
+
+  // Also support mouse for desktop testing
+  const handleMouseDown = () => {
+    handleTouchStart()
+  }
+
+  const handleMouseUp = () => {
+    handleTouchEnd()
+  }
+
+  const handleMouseLeave = () => {
+    handleTouchEnd()
+  }
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current !== null) {
+        clearTimeout(longPressTimerRef.current)
+      }
+    }
+  }, [])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -85,7 +92,12 @@ export function GuessInput({ onGuess, disabled = false, onCheatCode }: GuessInpu
             setInput(e.target.value)
             setError(null)
           }}
-          onKeyDown={handleKeyDown}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
           disabled={disabled}
           placeholder={disabled ? "You won!" : "Enter a word..."}
           className={`
