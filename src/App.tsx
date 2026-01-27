@@ -47,7 +47,7 @@ function Game() {
       console.log('  %cresetGame()%c - Clear game state and reload', 'color: #60a5fa', 'color: inherit')
       console.log('  %cshowAnswer()%c - Reveal target word', 'color: #60a5fa', 'color: inherit')
       console.log('  Or type %c"cheat"%c for full debug info, %c"reset"%c to restart', 'color: #22c55e', 'color: inherit', 'color: #ef4444', 'color: inherit')
-      console.log('  📱 Mobile: Type "cheat" in the input box then backspace it all', 'color: #6b7280')
+      console.log('  📱 Mobile: Long-press the input box for 3 seconds', 'color: #6b7280')
       hasShownConsoleHelp.current = true
     }
 
