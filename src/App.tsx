@@ -47,6 +47,7 @@ function Game() {
       console.log('  %cresetGame()%c - Clear game state and reload', 'color: #60a5fa', 'color: inherit')
       console.log('  %cshowAnswer()%c - Reveal target word', 'color: #60a5fa', 'color: inherit')
       console.log('  Or type %c"cheat"%c for full debug info, %c"reset"%c to restart', 'color: #22c55e', 'color: inherit', 'color: #ef4444', 'color: inherit')
+      console.log('  📱 Mobile: Type "cheat" in the input box then backspace it all', 'color: #6b7280')
       hasShownConsoleHelp.current = true
     }
 
@@ -91,39 +92,7 @@ function Game() {
 
         // Check for cheat code
         if (cheatCodeRef.current === 'cheat') {
-          console.clear()
-          console.log('%c🎯 CHEAT MODE ACTIVATED 🎯', 'color: #22c55e; font-size: 20px; font-weight: bold;')
-          console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #22c55e')
-          console.log(`%cTarget Word: %c${targetWord.toUpperCase()}`, 'color: #fbbf24; font-size: 16px', 'color: #22c55e; font-size: 20px; font-weight: bold')
-          console.log(`%cGame Number: %c#${gameNumber}`, 'color: #fbbf24', 'color: white; font-weight: bold')
-          console.log(`%cTotal Words: %c${totalWords.toLocaleString()}`, 'color: #fbbf24', 'color: white; font-weight: bold')
-          console.log(`%cGuesses Made: %c${guesses.length}`, 'color: #fbbf24', 'color: white; font-weight: bold')
-          console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #22c55e')
-
-          if (guesses.length > 0) {
-            const bestGuess = guesses.reduce((best, g) => g.rank < best.rank ? g : best)
-            console.log(`%cBest Guess: %c"${bestGuess.word}" %c(rank #${bestGuess.rank})`,
-              'color: #fbbf24', 'color: #60a5fa; font-weight: bold', 'color: #9ca3af')
-
-            // Show top 10 closest words
-            const sortedGuesses = [...guesses].sort((a, b) => a.rank - b.rank).slice(0, 10)
-            console.log('\n%cTop 10 Closest Guesses:', 'color: #fbbf24; font-weight: bold')
-            sortedGuesses.forEach((g, i) => {
-              console.log(`  ${i + 1}. "${g.word}" - rank #${g.rank}`)
-            })
-          }
-
-          console.log('\n%cHint: Top 1000 words to try:', 'color: #fbbf24; font-weight: bold')
-          const topWords = Array.from(rankings.entries())
-            .sort((a, b) => a[1].rank - b[1].rank)
-            .slice(0, 20)
-            .filter(([word]) => !guesses.some(g => g.word === word))
-            .slice(0, 10)
-            .map(([word, data]) => `"${word}" (#${data.rank})`)
-          console.log('  ' + topWords.join(', '))
-
-          console.log('\n%c💡 Tip: Type "reset" to clear game state and start over', 'color: #6b7280; font-style: italic')
-
+          displayCheatInfo()
           cheatCodeRef.current = '' // Reset
         }
       }
@@ -139,6 +108,47 @@ function Game() {
       setShowCelebration(true)
     }
     return result
+  }
+
+  // Shared cheat code display logic
+  const displayCheatInfo = () => {
+    console.clear()
+    console.log('%c🎯 CHEAT MODE ACTIVATED 🎯', 'color: #22c55e; font-size: 20px; font-weight: bold;')
+    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #22c55e')
+    console.log(`%cTarget Word: %c${targetWord.toUpperCase()}`, 'color: #fbbf24; font-size: 16px', 'color: #22c55e; font-size: 20px; font-weight: bold')
+    console.log(`%cGame Number: %c#${gameNumber}`, 'color: #fbbf24', 'color: white; font-weight: bold')
+    console.log(`%cTotal Words: %c${totalWords.toLocaleString()}`, 'color: #fbbf24', 'color: white; font-weight: bold')
+    console.log(`%cGuesses Made: %c${guesses.length}`, 'color: #fbbf24', 'color: white; font-weight: bold')
+    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #22c55e')
+
+    if (guesses.length > 0) {
+      const bestGuess = guesses.reduce((best, g) => g.rank < best.rank ? g : best)
+      console.log(`%cBest Guess: %c"${bestGuess.word}" %c(rank #${bestGuess.rank})`,
+        'color: #fbbf24', 'color: #60a5fa; font-weight: bold', 'color: #9ca3af')
+
+      // Show top 10 closest words
+      const sortedGuesses = [...guesses].sort((a, b) => a.rank - b.rank).slice(0, 10)
+      console.log('\n%cTop 10 Closest Guesses:', 'color: #fbbf24; font-weight: bold')
+      sortedGuesses.forEach((g, i) => {
+        console.log(`  ${i + 1}. "${g.word}" - rank #${g.rank}`)
+      })
+    }
+
+    console.log('\n%cHint: Top 1000 words to try:', 'color: #fbbf24; font-weight: bold')
+    const topWords = Array.from(rankings.entries())
+      .sort((a, b) => a[1].rank - b[1].rank)
+      .slice(0, 20)
+      .filter(([word]) => !guesses.some(g => g.word === word))
+      .slice(0, 10)
+      .map(([word, data]) => `"${word}" (#${data.rank})`)
+    console.log('  ' + topWords.join(', '))
+
+    console.log('\n%c💡 Tip: Type "reset" to clear game state and start over', 'color: #6b7280; font-style: italic')
+  }
+
+  // Callback for mobile cheat code
+  const handleCheatCode = () => {
+    displayCheatInfo()
   }
 
   const handleNewGame = () => {
@@ -191,7 +201,7 @@ function Game() {
         )}
 
         {/* Input */}
-        <GuessInput onGuess={handleGuess} disabled={gameWon} />
+        <GuessInput onGuess={handleGuess} disabled={gameWon} onCheatCode={handleCheatCode} />
 
         {/* Tab navigation */}
         <div className="flex justify-center gap-4 mb-6">
