@@ -31,7 +31,7 @@ export function GuessInput({ onGuess, disabled = false, onCheatCode }: GuessInpu
         cheatProgressRef.current++
 
         // If we've backspaced all 5 characters
-        if (cheatProgressRef.current === 10 && input === '') {
+        if (cheatProgressRef.current === 10 && input.length === 1) {
           // Trigger cheat code!
           if (onCheatCode) {
             onCheatCode()
