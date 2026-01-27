@@ -13,7 +13,7 @@ export function Header({ gameNumber, randomWordSeed }: HeaderProps) {
       <header className="w-full border-b border-gray-800 py-4 px-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <h1 className="text-2xl font-bold text-white tracking-tight">
-            Semantle
+            Guesstalt
             <span className="text-gray-500 text-sm ml-2 font-normal">
               #{gameNumber}{randomWordSeed && ` R${randomWordSeed}`}
             </span>
@@ -57,7 +57,7 @@ export function Header({ gameNumber, randomWordSeed }: HeaderProps) {
 
             <div className="space-y-4 text-gray-300">
               <p>
-                <strong className="text-white">Semantle</strong> is a word guessing game where you try to find the secret word based on <em>semantic similarity</em>.
+                <strong className="text-white">Guesstalt</strong> is a word guessing game where you try to find the secret word based on <em>semantic similarity</em>.
               </p>
 
               <div className="bg-gray-800 rounded-lg p-4">

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GloVe Word Embeddings Processor for Semantle Game
+GloVe Word Embeddings Processor for Guesstalt Game
 
 This script downloads and processes GloVe embeddings to create a curated word list
 for the word distance game. It handles:
@@ -463,7 +463,7 @@ def verify_output(output_path):
 def main():
     """Main entry point."""
     print("=" * 60)
-    print("GloVe Word Embeddings Processor for Semantle Game")
+    print("GloVe Word Embeddings Processor for Guesstalt Game")
     print("Using 2024 Wikipedia embeddings")
     print("=" * 60)
 

@@ -78,7 +78,7 @@ export function processGuess(
 }
 
 // Local storage keys
-const STORAGE_KEY = 'semantle-game-state'
+const STORAGE_KEY = 'guesstalt-game-state'
 
 // Save game state to local storage
 export function saveGameState(state: GameState): void {
@@ -111,7 +111,7 @@ export function clearGameState(): void {
 // Generate share text
 export function generateShareText(state: GameState): string {
   const lines = [
-    `🎯 Semantle #${state.gameNumber}`,
+    `🎯 Guesstalt #${state.gameNumber}`,
     `Guesses: ${state.guesses.length}`,
     '',
     'Guess progression:'
@@ -132,7 +132,7 @@ export function generateShareText(state: GameState): string {
   })
 
   lines.push('')
-  lines.push('https://semantle.example.com')
+  lines.push('https://guesstalt.example.com')
 
   return lines.join('\n')
 }
