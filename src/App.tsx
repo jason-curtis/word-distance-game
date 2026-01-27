@@ -163,7 +163,7 @@ function Game() {
   const handleDailyGame = () => {
     // Clear random seed to go back to daily word
     localStorage.removeItem('randomWordSeed')
-    localStorage.removeItem('semantle-game-state')
+    localStorage.removeItem('guesstalt-game-state')
     window.location.reload()
   }
 

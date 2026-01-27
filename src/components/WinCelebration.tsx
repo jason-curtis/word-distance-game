@@ -60,7 +60,7 @@ export function WinCelebration({ guesses, gameNumber, targetWord, onClose }: Win
     try {
       if (navigator.share) {
         await navigator.share({
-          title: `Semantle #${gameNumber}`,
+          title: `Guesstalt #${gameNumber}`,
           text: shareText
         })
       } else {
@@ -118,7 +118,7 @@ export function WinCelebration({ guesses, gameNumber, targetWord, onClose }: Win
         </div>
 
         <p className="mt-6 text-gray-500 text-sm">
-          Semantle #{gameNumber} • Come back tomorrow for a new word!
+          Guesstalt #{gameNumber} • Come back tomorrow for a new word!
         </p>
       </div>
     </div>

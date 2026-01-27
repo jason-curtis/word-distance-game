@@ -1,7 +1,7 @@
 # Visualization Iteration Notes
 
 ## Overview
-This document tracks our iterations on the semantic word visualization for the Semantle-style word guessing game.
+This document tracks our iterations on the semantic word visualization for the Guesstalt word guessing game.
 
 ---
 

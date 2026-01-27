@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Semantle Word Distance Game', () => {
+test.describe('Guesstalt Word Distance Game', () => {
   test.beforeEach(async ({ page }) => {
     // Capture console errors
     page.on('console', msg => {
@@ -25,10 +25,10 @@ test.describe('Semantle Word Distance Game', () => {
     await page.waitForTimeout(1000);
 
     // Check title
-    await expect(page).toHaveTitle(/Semantle/);
+    await expect(page).toHaveTitle(/Guesstalt/);
 
     // Check header is visible
-    await expect(page.getByRole('heading', { name: /Semantle/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Guesstalt/ })).toBeVisible();
 
     // Check game number is displayed
     await expect(page.locator('text=/#\\d+/')).toBeVisible();
@@ -42,7 +42,7 @@ test.describe('Semantle Word Distance Game', () => {
 
     // Check modal is visible
     await expect(page.getByRole('heading', { name: /How to Play/i })).toBeVisible();
-    await expect(page.getByText(/Semantle is a word guessing game/i)).toBeVisible();
+    await expect(page.getByText(/Guesstalt is a word guessing game/i)).toBeVisible();
 
     // Check modal sections
     await expect(page.getByText(/🎯 Goal/)).toBeVisible();
