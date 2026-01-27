@@ -51,7 +51,7 @@ except ImportError:
 GLOVE_URL = "https://nlp.stanford.edu/data/wordvecs/glove.2024.wikigiga.50d.zip"
 OUTPUT_FILE = "src/data/words.json"
 TARGET_WORD_COUNT = 15000  # Aim for ~15k words after filtering
-MIN_WORD_LENGTH = 2
+MIN_WORD_LENGTH = 3  # Words must be at least 3 characters
 MAX_WORD_LENGTH = 15
 VECTOR_DIMENSIONS = 50
 
