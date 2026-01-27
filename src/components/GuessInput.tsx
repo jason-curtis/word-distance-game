@@ -3,19 +3,59 @@ import { useState, useRef, useEffect } from 'react'
 interface GuessInputProps {
   onGuess: (word: string) => { success: boolean; error?: string }
   disabled?: boolean
+  onCheatCode?: () => void
 }
 
-export function GuessInput({ onGuess, disabled = false }: GuessInputProps) {
+export function GuessInput({ onGuess, disabled = false, onCheatCode }: GuessInputProps) {
   const [input, setInput] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [shake, setShake] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const cheatProgressRef = useRef(0) // Tracks progress: 0-5 for typing "cheat", 6-10 for backspacing
 
   useEffect(() => {
     if (!disabled) {
       inputRef.current?.focus()
     }
   }, [disabled])
+
+  // Track cheat code pattern: type "cheat" then backspace 5 times
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const cheatSequence = 'cheat'
+
+    if (e.key === 'Backspace') {
+      // If we've typed "cheat" completely (progress = 5), start counting backspaces
+      if (cheatProgressRef.current === 5) {
+        cheatProgressRef.current = 6
+      } else if (cheatProgressRef.current >= 6 && cheatProgressRef.current < 10) {
+        cheatProgressRef.current++
+
+        // If we've backspaced all 5 characters
+        if (cheatProgressRef.current === 10 && input === '') {
+          // Trigger cheat code!
+          if (onCheatCode) {
+            onCheatCode()
+          }
+          cheatProgressRef.current = 0
+        }
+      } else {
+        // Reset if backspacing at wrong time
+        cheatProgressRef.current = 0
+      }
+    } else if (e.key.length === 1 && e.key.match(/[a-z]/i)) {
+      // Track typing "cheat"
+      const expectedChar = cheatSequence[cheatProgressRef.current]
+      if (e.key.toLowerCase() === expectedChar) {
+        cheatProgressRef.current++
+        if (cheatProgressRef.current > 5) {
+          cheatProgressRef.current = 0 // Went past "cheat"
+        }
+      } else {
+        // Wrong character, reset
+        cheatProgressRef.current = e.key.toLowerCase() === cheatSequence[0] ? 1 : 0
+      }
+    }
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -45,6 +85,7 @@ export function GuessInput({ onGuess, disabled = false }: GuessInputProps) {
             setInput(e.target.value)
             setError(null)
           }}
+          onKeyDown={handleKeyDown}
           disabled={disabled}
           placeholder={disabled ? "You won!" : "Enter a word..."}
           className={`
