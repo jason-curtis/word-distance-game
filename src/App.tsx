@@ -193,6 +193,15 @@ function Game() {
         {/* Input */}
         <GuessInput onGuess={handleGuess} disabled={gameWon} />
 
+        {/* Last guessed word */}
+        {guesses.length > 0 && (
+          <div className="w-full max-w-md mx-auto mb-6 text-center">
+            <p className="text-sm text-gray-400">
+              Last guess: <span className="text-white font-semibold uppercase">{guesses[guesses.length - 1].word}</span>
+            </p>
+          </div>
+        )}
+
         {/* Tab navigation */}
         <div className="flex justify-center gap-4 mb-6">
           <button
