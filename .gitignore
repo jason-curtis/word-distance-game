@@ -39,3 +39,9 @@ data/glove/
 .cache/
 __pycache__/
 *.pyc
+
+# Gas Town (added by gt)
+.runtime/
+.claude/
+.beads/
+.logs/
