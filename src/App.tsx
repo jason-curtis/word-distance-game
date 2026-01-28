@@ -278,6 +278,7 @@ function Game() {
           guesses={guesses}
           gameNumber={gameNumber}
           targetWord={targetWord}
+          randomSeed={randomWordSeed}
           onClose={() => setShowCelebration(false)}
         />
       )}

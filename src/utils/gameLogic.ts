@@ -109,37 +109,34 @@ export function clearGameState(): void {
 }
 
 // Generate share text
-export function generateShareText(state: GameState): string {
+export function generateShareText(state: GameState & { randomSeed?: string | null }): string {
+  const isRandomMode = !!state.randomSeed
+  const gameLabel = isRandomMode
+    ? `Guesstalt R${state.randomSeed}`
+    : `Guesstalt #${state.gameNumber}`
+
   const lines = [
-    `🎯 Guesstalt #${state.gameNumber}`,
-    `Guesses: ${state.guesses.length}`,
+    `🎯 ${gameLabel}`,
     '',
-    'Guess progression:'
+    `Found the word in ${state.guesses.length} ${state.guesses.length === 1 ? 'guess' : 'guesses'}!`,
+    ''
   ]
 
-  // Show the journey - key guesses
+  // Show final approach - last few guesses that got closer
   const sortedGuesses = [...state.guesses].sort((a, b) => a.guessNumber - b.guessNumber)
-  const keyGuesses = sortedGuesses.filter((g, i) =>
-    i === 0 || // First guess
-    g.isCorrect || // Winning guess
-    g.rank < sortedGuesses[i - 1].rank // Getting closer
-  ).slice(0, 10) // Max 10 key guesses
+  const approachGuesses = sortedGuesses
+    .filter(g => g.rank <= 1000) // Only show reasonably close guesses
+    .slice(-5) // Last 5 close guesses
 
-  keyGuesses.forEach(g => {
-    const bar = getProgressBar(g.rank, state.guesses.length > 0 ?
-      Math.max(...state.guesses.map(x => x.rank)) : 10000)
-    lines.push(`${g.guessNumber}. ${bar} #${g.rank}`)
-  })
+  if (approachGuesses.length > 0) {
+    approachGuesses.forEach(g => {
+      const emoji = g.isCorrect ? '🎯' : g.rank <= 10 ? '🔥' : g.rank <= 100 ? '🥵' : '😅'
+      lines.push(`${emoji} #${g.rank}`)
+    })
+    lines.push('')
+  }
 
-  lines.push('')
-  lines.push('https://guesstalt.example.com')
+  lines.push('https://guesstalt.example.com' + (isRandomMode ? `?r=${state.randomSeed}` : ''))
 
   return lines.join('\n')
-}
-
-// Generate a visual progress bar
-function getProgressBar(rank: number, maxRank: number): string {
-  const totalBlocks = 10
-  const filledBlocks = Math.max(1, Math.round((1 - rank / maxRank) * totalBlocks))
-  return '🟩'.repeat(filledBlocks) + '⬜'.repeat(totalBlocks - filledBlocks)
 }

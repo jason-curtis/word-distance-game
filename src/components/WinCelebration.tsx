@@ -7,10 +7,11 @@ interface WinCelebrationProps {
   guesses: GuessResult[]
   gameNumber: number
   targetWord: string
+  randomSeed: string | null
   onClose: () => void
 }
 
-export function WinCelebration({ guesses, gameNumber, targetWord, onClose }: WinCelebrationProps) {
+export function WinCelebration({ guesses, gameNumber, targetWord, randomSeed, onClose }: WinCelebrationProps) {
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -54,7 +55,8 @@ export function WinCelebration({ guesses, gameNumber, targetWord, onClose }: Win
       guesses,
       gameWon: true,
       gameNumber,
-      date: new Date().toISOString().split('T')[0]
+      date: new Date().toISOString().split('T')[0],
+      randomSeed
     })
 
     try {
